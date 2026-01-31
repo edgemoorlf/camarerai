@@ -1,0 +1,16 @@
+{
+  "names": [
+    "Lily",
+    "Emma",
+    "Sophie",
+    "Grace",
+    "Olivia",
+    "Ava",
+    "Mia",
+    "Isabella",
+    "Charlotte",
+    "Amelia"
+  ],
+  "assignment_strategy": "round_robin",
+  "notes": "Each table gets a unique name to avoid wake word interference in noisy restaurant environment"
+}

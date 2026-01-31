@@ -1,0 +1,10 @@
+# Core dependencies
+dashscope>=1.14.0
+flask>=3.0.0
+python-dotenv>=1.0.0
+
+# Audio processing
+pydub>=0.25.1
+
+# Utilities
+requests>=2.31.0

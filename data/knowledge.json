@@ -1,0 +1,108 @@
+{
+  "restaurant_knowledge": {
+    "history": {
+      "en": "Golden Dragon has been serving authentic Sichuan cuisine in the Bay Area for over 20 years. Founded by Mrs. Chen, who brought her family recipes from Chengdu.",
+      "zh": "金龙餐厅在湾区提供正宗川菜已有20多年历史。由陈太太创立，她从成都带来了家传食谱。",
+      "yue": "金龍餐廳喺灣區提供正宗川菜已經超過20年。由陳太太創立，佢從成都帶嚟咗家傳食譜。"
+    },
+    "cooking_methods": {
+      "sichuan_style": {
+        "en": "Sichuan cuisine is known for bold flavors, especially the pungency and spiciness from garlic, chili peppers, and the unique flavor of Sichuan pepper.",
+        "zh": "川菜以大胆的味道而闻名，特别是大蒜、辣椒和独特的花椒味道带来的辛辣。",
+        "yue": "川菜以大膽嘅味道而聞名，特別係蒜頭、辣椒同獨特嘅花椒味道帶嚟嘅辛辣。"
+      },
+      "wok_cooking": {
+        "en": "We use traditional wok cooking at high heat to seal in flavors and create the characteristic 'wok hei' (breath of the wok).",
+        "zh": "我们使用传统的大火炒锅烹饪，以锁住味道并创造出特有的'镬气'。",
+        "yue": "我哋用傳統嘅大火炒鑊煮嘢，以鎖住味道同創造出特有嘅'鑊氣'。"
+      }
+    },
+    "ingredients": {
+      "sichuan_pepper": {
+        "en": "Sichuan pepper creates a unique numbing sensation. It's not spicy-hot like chili, but creates a tingling feeling on the tongue.",
+        "zh": "花椒产生独特的麻感。它不像辣椒那样辣，而是在舌头上产生刺痛感。",
+        "yue": "花椒產生獨特嘅麻感。佢唔似辣椒咁辣，而係喺舌頭上產生刺痛感。"
+      },
+      "doubanjiang": {
+        "en": "Doubanjiang (fermented broad bean paste) is the soul of Sichuan cooking. We import ours directly from Pixian, Sichuan.",
+        "zh": "豆瓣酱（发酵蚕豆酱）是川菜的灵魂。我们的豆瓣酱直接从四川郫县进口。",
+        "yue": "豆瓣醬（發酵蠶豆醬）係川菜嘅靈魂。我哋嘅豆瓣醬直接從四川郫縣進口。"
+      }
+    },
+    "dietary_accommodations": {
+      "vegetarian": {
+        "en": "We can make most dishes vegetarian by substituting tofu or mushrooms for meat. Just ask!",
+        "zh": "我们可以用豆腐或蘑菇代替肉类，使大多数菜肴变成素食。请随时询问！",
+        "yue": "我哋可以用豆腐或者蘑菇代替肉類，令大部分菜式變成素食。請隨時問！"
+      },
+      "spice_levels": {
+        "en": "All spice levels can be adjusted. We have 5 levels: mild (1), medium (2), medium-hot (3), hot (4), and extra hot (5).",
+        "zh": "所有辣度都可以调整。我们有5个级别：微辣(1)、中辣(2)、中辣+(3)、辣(4)和特辣(5)。",
+        "yue": "所有辣度都可以調整。我哋有5個級別：微辣(1)、中辣(2)、中辣+(3)、辣(4)同特辣(5)。"
+      },
+      "gluten_free": {
+        "en": "Many dishes can be made gluten-free by using tamari instead of soy sauce and rice noodles instead of wheat noodles.",
+        "zh": "许多菜肴可以通过使用无麸质酱油代替普通酱油，用米粉代替小麦面条来制作无麸质版本。",
+        "yue": "好多菜式可以用無麩質豉油代替普通豉油，用米粉代替小麥麵條嚟整無麩質版本。"
+      }
+    },
+    "pairing_suggestions": {
+      "kung_pao_chicken": {
+        "en": "Pairs well with steamed rice and jasmine tea. The tea helps balance the spiciness.",
+        "zh": "配白米饭和茉莉花茶很好。茶有助于平衡辣味。",
+        "yue": "配白飯同茉莉花茶好好。茶有助於平衡辣味。"
+      },
+      "mapo_tofu": {
+        "en": "Best with steamed rice to soak up the flavorful sauce. Tsingtao beer is a popular pairing.",
+        "zh": "最好配白米饭来吸收美味的酱汁。青岛啤酒是受欢迎的搭配。",
+        "yue": "最好配白飯嚟吸收美味嘅醬汁。青島啤酒係受歡迎嘅搭配。"
+      }
+    },
+    "portion_guidance": {
+      "party_of_2": {
+        "en": "For 2 people, we recommend 1 appetizer and 2 main dishes, plus rice.",
+        "zh": "对于2人，我们建议1个开胃菜和2个主菜，加米饭。",
+        "yue": "對於2個人，我哋建議1個頭盤同2個主菜，加飯。"
+      },
+      "party_of_4": {
+        "en": "For 4 people, we recommend 2 appetizers and 3-4 main dishes, plus rice.",
+        "zh": "对于4人，我们建议2个开胃菜和3-4个主菜，加米饭。",
+        "yue": "對於4個人，我哋建議2個頭盤同3-4個主菜，加飯。"
+      },
+      "sharing_style": {
+        "en": "Chinese dining is family-style. All dishes are meant to be shared. We'll bring extra plates.",
+        "zh": "中式用餐是家庭式的。所有菜肴都是共享的。我们会提供额外的盘子。",
+        "yue": "中式用餐係家庭式嘅。所有菜式都係共享嘅。我哋會提供額外嘅碟。"
+      }
+    },
+    "cultural_notes": {
+      "tea_service": {
+        "en": "Tea is complimentary and unlimited. It's traditional to pour tea for others before yourself.",
+        "zh": "茶是免费且无限量的。传统上，先为他人倒茶，然后再为自己倒。",
+        "yue": "茶係免費同無限量嘅。傳統上，先為他人倒茶，然後再為自己倒。"
+      },
+      "chopsticks": {
+        "en": "Chopsticks are provided, but forks are available if needed. No judgment!",
+        "zh": "提供筷子，但如果需要也可以提供叉子。不用担心！",
+        "yue": "提供筷子，但如果需要都可以提供叉。唔使擔心！"
+      }
+    }
+  },
+  "staff_recommendations": {
+    "first_time_visitors": [
+      "Kung Pao Chicken - our signature dish",
+      "Dan Dan Noodles - authentic Chengdu street food",
+      "Mapo Tofu - if you like spicy"
+    ],
+    "family_friendly": [
+      "Sweet and Sour Pork - kids love it",
+      "Spring Rolls - not spicy",
+      "Vegetable Fried Rice - safe choice"
+    ],
+    "adventurous_eaters": [
+      "Mapo Tofu - extra spicy",
+      "Twice Cooked Pork - traditional home cooking",
+      "Dan Dan Noodles - authentic and bold"
+    ]
+  }
+}

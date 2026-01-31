@@ -1,0 +1,20 @@
+{
+  "default_voice": "zhixiaobai",
+  "available_voices": {
+    "zhixiaobai": {
+      "name": "Xiaobai",
+      "language": "zh",
+      "gender": "female",
+      "description": "Friendly Chinese female voice"
+    },
+    "zhiyan": {
+      "name": "Yan",
+      "language": "zh",
+      "gender": "female",
+      "description": "Professional Chinese female voice"
+    }
+  },
+  "cloned_voices": {},
+  "tables": {},
+  "notes": "Cloned voices will be stored here after voice cloning process"
+}

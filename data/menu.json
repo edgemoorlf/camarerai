@@ -1,0 +1,224 @@
+{
+  "restaurant": {
+    "name": "Golden Dragon",
+    "name_zh": "金龙餐厅",
+    "cuisine": "Sichuan",
+    "location": "Bay Area, CA"
+  },
+  "menu": {
+    "appetizers": [
+      {
+        "id": "app_001",
+        "name": {
+          "en": "Kung Pao Chicken",
+          "zh": "宫保鸡丁",
+          "yue": "宮保雞丁"
+        },
+        "description": {
+          "en": "Spicy stir-fried chicken with peanuts and vegetables",
+          "zh": "辣炒鸡丁配花生和蔬菜",
+          "yue": "辣炒雞丁配花生同菜"
+        },
+        "price": 14.99,
+        "dietary": ["gluten-free-option"],
+        "allergens": ["peanuts", "soy"],
+        "spice_level": 3,
+        "serves": 2,
+        "staff_priority": {
+          "owner_recommendation": true,
+          "signature_dish": true,
+          "story": "Mrs. Chen's father's recipe from Chengdu. Our most popular dish for 20 years."
+        }
+      },
+      {
+        "id": "app_002",
+        "name": {
+          "en": "Mapo Tofu",
+          "zh": "麻婆豆腐",
+          "yue": "麻婆豆腐"
+        },
+        "description": {
+          "en": "Silky tofu in spicy Sichuan sauce with ground pork",
+          "zh": "嫩豆腐配辣四川酱和猪肉末",
+          "yue": "嫩豆腐配辣四川醬同豬肉碎"
+        },
+        "price": 12.99,
+        "dietary": ["vegetarian-option"],
+        "allergens": ["soy"],
+        "spice_level": 4,
+        "serves": 2,
+        "staff_priority": {
+          "owner_recommendation": true,
+          "signature_dish": false,
+          "story": "Authentic Sichuan recipe. Can make vegetarian without pork."
+        }
+      },
+      {
+        "id": "app_003",
+        "name": {
+          "en": "Spring Rolls",
+          "zh": "春卷",
+          "yue": "春卷"
+        },
+        "description": {
+          "en": "Crispy vegetable spring rolls with sweet chili sauce",
+          "zh": "脆皮蔬菜春卷配甜辣酱",
+          "yue": "脆皮蔬菜春卷配甜辣醬"
+        },
+        "price": 8.99,
+        "dietary": ["vegetarian", "vegan-option"],
+        "allergens": ["gluten", "soy"],
+        "spice_level": 1,
+        "serves": 2,
+        "staff_priority": {
+          "owner_recommendation": false,
+          "good_for_kids": true
+        }
+      }
+    ],
+    "mains": [
+      {
+        "id": "main_001",
+        "name": {
+          "en": "Sweet and Sour Pork",
+          "zh": "糖醋里脊",
+          "yue": "糖醋里脊"
+        },
+        "description": {
+          "en": "Crispy pork with pineapple in sweet and sour sauce",
+          "zh": "脆皮猪肉配菠萝和糖醋酱",
+          "yue": "脆皮豬肉配菠蘿同糖醋醬"
+        },
+        "price": 15.99,
+        "dietary": [],
+        "allergens": ["gluten"],
+        "spice_level": 0,
+        "serves": 2,
+        "popular": true,
+        "staff_priority": {
+          "owner_recommendation": false,
+          "popular_with_families": true
+        }
+      },
+      {
+        "id": "main_002",
+        "name": {
+          "en": "Dan Dan Noodles",
+          "zh": "担担面",
+          "yue": "擔擔麵"
+        },
+        "description": {
+          "en": "Spicy Sichuan noodles with minced pork and preserved vegetables",
+          "zh": "辣四川面配猪肉末和榨菜",
+          "yue": "辣四川麵配豬肉碎同榨菜"
+        },
+        "price": 13.99,
+        "dietary": [],
+        "allergens": ["gluten", "soy", "sesame"],
+        "spice_level": 3,
+        "serves": 1,
+        "staff_priority": {
+          "owner_recommendation": true,
+          "signature_dish": true,
+          "story": "Traditional Chengdu street food. Made fresh daily."
+        }
+      },
+      {
+        "id": "main_003",
+        "name": {
+          "en": "Twice Cooked Pork",
+          "zh": "回锅肉",
+          "yue": "回鍋肉"
+        },
+        "description": {
+          "en": "Sliced pork belly with leeks and peppers in savory sauce",
+          "zh": "五花肉片配韭菜和辣椒",
+          "yue": "五花肉片配韭菜同辣椒"
+        },
+        "price": 16.99,
+        "dietary": [],
+        "allergens": ["soy"],
+        "spice_level": 2,
+        "serves": 2,
+        "staff_priority": {
+          "owner_recommendation": true,
+          "signature_dish": false,
+          "story": "Classic Sichuan home cooking. Mrs. Chen's specialty."
+        }
+      },
+      {
+        "id": "main_004",
+        "name": {
+          "en": "Vegetable Fried Rice",
+          "zh": "蔬菜炒饭",
+          "yue": "蔬菜炒飯"
+        },
+        "description": {
+          "en": "Wok-fried rice with mixed vegetables and egg",
+          "zh": "炒饭配蔬菜和鸡蛋",
+          "yue": "炒飯配蔬菜同雞蛋"
+        },
+        "price": 10.99,
+        "dietary": ["vegetarian"],
+        "allergens": ["egg", "soy"],
+        "spice_level": 0,
+        "serves": 1,
+        "staff_priority": {
+          "good_for_kids": true
+        }
+      }
+    ],
+    "drinks": [
+      {
+        "id": "drink_001",
+        "name": {
+          "en": "Jasmine Tea",
+          "zh": "茉莉花茶",
+          "yue": "茉莉花茶"
+        },
+        "description": {
+          "en": "Traditional Chinese jasmine tea",
+          "zh": "传统中国茉莉花茶",
+          "yue": "傳統中國茉莉花茶"
+        },
+        "price": 3.99,
+        "dietary": ["vegan"],
+        "allergens": []
+      },
+      {
+        "id": "drink_002",
+        "name": {
+          "en": "Tsingtao Beer",
+          "zh": "青岛啤酒",
+          "yue": "青島啤酒"
+        },
+        "description": {
+          "en": "Chinese lager beer",
+          "zh": "中国拉格啤酒",
+          "yue": "中國啤酒"
+        },
+        "price": 5.99,
+        "dietary": [],
+        "allergens": ["gluten"]
+      }
+    ],
+    "desserts": [
+      {
+        "id": "dessert_001",
+        "name": {
+          "en": "Mango Pudding",
+          "zh": "芒果布丁",
+          "yue": "芒果布甸"
+        },
+        "description": {
+          "en": "Smooth mango pudding with fresh fruit",
+          "zh": "滑嫩芒果布丁配新鲜水果",
+          "yue": "滑芒果布甸配新鮮生果"
+        },
+        "price": 6.99,
+        "dietary": ["vegetarian"],
+        "allergens": ["dairy"]
+      }
+    ]
+  }
+}
