@@ -1,7 +1,7 @@
 // CamareraI - Streaming Voice Recognition Client
 // WebSocket-based real-time ASR with DashScope
 
-class VoiceAgent {
+class StreamingVoiceAgent {
     constructor() {
         this.sessionId = null;
         this.socket = null;
@@ -30,7 +30,7 @@ class VoiceAgent {
         return new Promise((resolve, reject) => {
             // Connect to Socket.IO server
             this.socket = io('http://localhost:5002', {
-                transports: ['polling', 'websocket']
+                transports: ['websocket', 'polling']
             });
 
             this.socket.on('connect', () => {
@@ -455,7 +455,7 @@ class VoiceAgent {
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', () => {
-    window.voiceAgent = new VoiceAgent();
+    window.voiceAgent = new StreamingVoiceAgent();
 
     console.log('%c🎤 Streaming Voice Recognition Enabled', 'color: #667eea; font-size: 14px; font-weight: bold;');
     console.log('%c💡 Tip: Double-click conversation area for text input fallback', 'color: #667eea; font-size: 12px;');

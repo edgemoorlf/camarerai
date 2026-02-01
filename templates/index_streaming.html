@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CamareraI - Voice Agent</title>
+    <title>CamareraI - Streaming Voice Agent</title>
     <link rel="stylesheet" href="/static/style.css">
+    <!-- Socket.IO Client -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -13,7 +15,7 @@
             <h1 id="table-name">Table 1 - Lily</h1>
             <div class="status-indicator">
                 <span id="status-icon">💤</span>
-                <span id="status-text">Sleeping</span>
+                <span id="status-text">Connecting...</span>
             </div>
         </div>
 
@@ -24,8 +26,16 @@
                 <div id="conversation-history" class="conversation-history">
                     <div class="welcome-message">
                         <p>👋 Hi! I'm Lily, your AI assistant.</p>
-                        <p>Tap the button below to start talking!</p>
+                        <p>🎤 Tap the button below to start talking!</p>
+                        <p style="font-size: 12px; color: #718096; margin-top: 12px;">
+                            ✨ Real-time streaming voice recognition enabled
+                        </p>
                     </div>
+                </div>
+
+                <!-- Transcription Preview (for streaming) -->
+                <div id="transcription-preview" style="display: none; padding: 12px; background: #f7fafc; border-radius: 8px; margin-top: 12px; font-size: 14px; color: #4a5568; font-style: italic;">
+                    Listening...
                 </div>
             </div>
 
@@ -70,7 +80,7 @@
             </div>
         </div>
 
-        <!-- Debug Panel (for POC) -->
+        <!-- Debug Panel -->
         <div class="debug-panel">
             <button id="toggle-debug" class="debug-toggle">🔧 Debug</button>
             <div id="debug-content" class="debug-content hidden">
@@ -78,7 +88,7 @@
                 <div id="debug-info">
                     <p><strong>Session ID:</strong> <span id="debug-session">-</span></p>
                     <p><strong>Role:</strong> <span id="debug-role">customer</span></p>
-                    <p><strong>Language:</strong> <span id="debug-language">auto</span></p>
+                    <p><strong>Connection:</strong> <span id="debug-connection">WebSocket</span></p>
                     <p><strong>Last Transcription:</strong> <span id="debug-transcript">-</span></p>
                     <p><strong>Last Response:</strong> <span id="debug-response">-</span></p>
                 </div>
@@ -89,8 +99,6 @@
     <!-- Audio element for playing responses -->
     <audio id="audio-player" style="display: none;"></audio>
 
-    <!-- Socket.IO Client -->
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app_streaming.js"></script>
 </body>
 </html>

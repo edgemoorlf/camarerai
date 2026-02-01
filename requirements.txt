@@ -8,3 +8,9 @@ pydub>=0.25.1
 
 # Utilities
 requests>=2.31.0
+
+# For streaming audio
+flask-socketio>=5.3.0
+python-socketio>=5.9.0
+eventlet>=0.33.0
+dashscope>=1.14.0

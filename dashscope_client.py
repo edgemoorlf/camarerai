@@ -119,6 +119,12 @@ class DashScopeClient:
             Audio URL (non-streaming) or streaming response generator (streaming)
         """
         try:
+            print(f"[TTS Debug] Calling MultiModalConversation.call with:")
+            print(f"  model: qwen3-tts-flash")
+            print(f"  text: {text[:50]}...")
+            print(f"  voice: {voice}")
+            print(f"  language_type: {language_type}")
+
             response = MultiModalConversation.call(
                 model='qwen3-tts-flash',
                 text=text,
@@ -128,18 +134,35 @@ class DashScopeClient:
                 stream=stream
             )
 
+            print(f"[TTS Debug] Response received:")
+            print(f"  status_code: {response.status_code}")
+            print(f"  type: {type(response)}")
+
+            if hasattr(response, 'output'):
+                print(f"  output type: {type(response.output)}")
+                print(f"  output: {response.output}")
+
+            if hasattr(response, 'message'):
+                print(f"  message: {response.message}")
+
             if stream:
                 # Return generator for streaming
                 return response
             else:
                 # Return audio URL for non-streaming
                 if response.status_code == HTTPStatus.OK:
-                    return response.output.get('audio_url')
+                    # Audio URL is nested in response.output['audio']['url']
+                    audio_data = response.output.get('audio', {})
+                    audio_url = audio_data.get('url') if isinstance(audio_data, dict) else None
+                    print(f"[TTS Debug] Extracted audio_url: {audio_url}")
+                    return audio_url
                 else:
                     raise Exception(f"TTS failed: {response.message}")
 
         except Exception as e:
             print(f"✗ Synthesis error: {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
     def synthesize_realtime(self, text, voice='Cherry', callback=None):
