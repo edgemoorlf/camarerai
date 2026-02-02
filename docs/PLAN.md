@@ -1593,8 +1593,10 @@ camarerai/
 ├── menu.json                 # Restaurant menu data
 ├── requirements.txt          # Python dependencies
 ├── README.md                 # Setup and usage instructions
-├── PLAN.md                   # This document
-└── IMPLEMENTATION_PLAN.md    # Detailed technical plan
+├── docs/
+│   ├── PLAN.md              # This document
+│   └── eng/
+│       └── IMPLEMENTATION_PLAN.md    # Detailed technical plan
 ```
 
 ### Core Components

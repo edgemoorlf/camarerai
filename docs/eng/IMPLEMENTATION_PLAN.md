@@ -132,9 +132,13 @@ camarerai/
 │   └── index.html           # Main UI (to be redesigned)
 ├── requirements.txt
 ├── .env                     # API keys
-├── PRODUCT_DESIGN.md        # Product decisions
-├── IMPLEMENTATION_PLAN.md   # This file
-└── IMPLEMENTATION_STATUS.md # Current status
+├── docs/
+│   ├── PLAN.md                        # Overall project plan
+│   ├── eng/
+│   │   ├── IMPLEMENTATION_PLAN.md     # This file
+│   │   └── IMPLEMENTATION_STATUS.md   # Current status
+│   └── prd/
+│       └── PRODUCT_DESIGN.md          # Product decisions
 ```
 
 ---

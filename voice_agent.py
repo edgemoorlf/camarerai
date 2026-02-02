@@ -90,7 +90,12 @@ class ConversationSession:
 
         if self.role == 'customer':
             return f"""You are {self.table_name.split(' - ')[1]}, a friendly AI assistant at {restaurant_name}.
-Help customers order food naturally. Speak in their language (English, Mandarin, or Cantonese).
+Help customers order food naturally.
+
+CRITICAL: Respond in the SAME LANGUAGE the customer is speaking:
+- If customer speaks Chinese (Mandarin/Cantonese), respond in Chinese
+- If customer speaks English, respond in English
+- Match their language exactly
 
 Current context:
 - Table: {self.table_name}
@@ -107,6 +112,7 @@ Guidelines:
 - Suggest popular items and staff recommendations
 - Confirm quantities and modifications
 - Keep responses concise (2-3 sentences)
+- ALWAYS respond in the customer's language
 """
         elif self.role == 'owner':
             return f"""You are {self.table_name.split(' - ')[1]}, assistant to the owner of {restaurant_name}.
@@ -209,6 +215,20 @@ class StreamingRecognitionCallback:
                         # Sentence is complete, add to completed list
                         self.completed_sentences.append(text)
                         self.current_sentence = ""
+
+                        # Build full text and send transcription_complete
+                        full_text = " ".join(self.completed_sentences)
+
+                        print(f"[ASR] Sentence complete: {full_text}")
+
+                        # Send transcription_complete to trigger chat
+                        self.socketio.emit('transcription_complete', {
+                            'session_id': self.session_id,
+                            'text': full_text
+                        }, room=self.client_sid)
+
+                        # Clear completed sentences for next utterance
+                        self.completed_sentences = []
                     else:
                         # Still building current sentence
                         self.current_sentence = text
@@ -389,9 +409,26 @@ def handle_chat(data):
         # Add user message to history
         session.add_message('user', message)
 
-        # Build messages for LLM
+        # Build messages for LLM with order extraction
+        system_prompt = session.get_system_prompt()
+
+        # Add order extraction instruction
+        order_extraction_prompt = """
+After responding to the customer, if they mentioned any menu items, extract them in JSON format at the end of your response.
+
+Format:
+[RESPONSE TO CUSTOMER]
+
+ORDER_UPDATE: {"action": "add|remove|modify", "items": [{"name": "item name", "quantity": 1, "price": 0.0, "modifications": []}]}
+
+Example:
+好的！我推荐宫保鸡丁，这是我们的招牌菜。
+
+ORDER_UPDATE: {"action": "add", "items": [{"name": "宫保鸡丁", "quantity": 1, "price": 14.99, "modifications": []}]}
+"""
+
         messages = [
-            {'role': 'system', 'content': session.get_system_prompt()}
+            {'role': 'system', 'content': system_prompt + '\n\n' + order_extraction_prompt}
         ]
 
         # Add recent conversation history
@@ -404,17 +441,61 @@ def handle_chat(data):
         # Get AI response
         response = dashscope_client.chat(messages, model='qwen-turbo')
 
+        # Parse order updates from response
+        order_update = None
+        clean_response = response
+
+        if 'ORDER_UPDATE:' in response:
+            parts = response.split('ORDER_UPDATE:')
+            clean_response = parts[0].strip()
+            try:
+                import json
+                order_json = parts[1].strip()
+                order_update = json.loads(order_json)
+
+                # Process order update
+                if order_update['action'] == 'add':
+                    for item in order_update['items']:
+                        session.current_order.append(item)
+                        print(f"[Order] Added: {item['name']} x{item['quantity']} - ${item['price']}")
+
+                elif order_update['action'] == 'remove':
+                    for item in order_update['items']:
+                        # Remove matching items
+                        session.current_order = [o for o in session.current_order if o['name'] != item['name']]
+                        print(f"[Order] Removed: {item['name']}")
+
+                elif order_update['action'] == 'modify':
+                    for item in order_update['items']:
+                        # Find and update item
+                        for o in session.current_order:
+                            if o['name'] == item['name']:
+                                o['quantity'] = item['quantity']
+                                print(f"[Order] Modified: {item['name']} -> x{item['quantity']}")
+
+                # Send order update to client
+                emit('order_updated', {
+                    'session_id': session_id,
+                    'order': session.current_order,
+                    'action': order_update['action']
+                })
+
+            except Exception as e:
+                print(f"[Order] Failed to parse order update: {e}")
+
         # Add AI response to history
-        session.add_message('assistant', response)
+        session.add_message('assistant', clean_response)
 
         emit('chat_response', {
             'session_id': session_id,
-            'response': response,
+            'response': clean_response,
             'table_name': session.table_name
         })
 
     except Exception as e:
         print(f"[Chat] Error: {e}")
+        import traceback
+        traceback.print_exc()
         emit('error', {'message': f'Chat error: {str(e)}'})
 
 

@@ -285,8 +285,10 @@ git branch -d feature/new-feature-name
 
 #### Supporting Documentation
 - **CLAUDE.md**: Guidelines for AI assistant (this file)
-- **PLAN.md**: Original planning document (reference only)
-- **STREAMING_COMPLETE.md**: Implementation details (reference only)
+- **docs/PLAN.md**: Original planning document (reference only)
+- **docs/eng/IMPLEMENTATION_PLAN.md**: Technical implementation plan
+- **docs/eng/IMPLEMENTATION_STATUS.md**: Current implementation status
+- **docs/prd/PRODUCT_DESIGN.md**: Product design decisions
 - **Rule**: All other docs point back to README.md as primary source
 
 #### Documentation Best Practices
@@ -543,6 +545,30 @@ Before merging to main:
   - File management best practices
   - Commit message guidelines
   - POC project management practices
+
+## Documentation Structure
+
+The project documentation is organized as follows:
+
+```
+camarerai/
+├── README.md                           # Main documentation (single source of truth)
+├── CLAUDE.md                           # AI assistant guidelines (this file)
+├── docs/
+│   ├── PLAN.md                        # Overall project plan and vision
+│   ├── eng/
+│   │   ├── IMPLEMENTATION_PLAN.md     # Technical implementation plan
+│   │   └── IMPLEMENTATION_STATUS.md   # Current implementation status
+│   └── prd/
+│       └── PRODUCT_DESIGN.md          # Product design decisions
+```
+
+### Documentation Guidelines
+- **README.md**: Always the primary source of truth for current status
+- **docs/PLAN.md**: High-level project vision and planning
+- **docs/eng/**: Technical documentation for implementation
+- **docs/prd/**: Product design and user experience documentation
+- When referencing documentation, use the paths above
 
 ## See Also
 

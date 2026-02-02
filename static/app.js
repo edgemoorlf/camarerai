@@ -1,16 +1,17 @@
-// CamareraI - Streaming Voice Recognition Client
-// WebSocket-based real-time ASR with DashScope
+// CamareraI - Always-Listening Voice Agent
+// Minimal UI with auto-respond and barge-in support
 
 class VoiceAgent {
     constructor() {
         this.sessionId = null;
         this.socket = null;
         this.isRecording = false;
+        this.isSpeaking = false;
         this.mediaRecorder = null;
         this.audioContext = null;
         this.audioWorklet = null;
         this.currentOrder = [];
-        this.transcriptionBuffer = "";
+        this.audioPlayer = null;
 
         this.init();
     }
@@ -23,12 +24,14 @@ class VoiceAgent {
         this.setupEventListeners();
 
         // Update UI
-        this.updateStatus('sleeping', '💤', 'Ready');
+        this.updateStatus('listening', '◉', 'Listening');
+
+        // Auto-start recording
+        setTimeout(() => this.startRecording(), 1000);
     }
 
     async connectWebSocket() {
         return new Promise((resolve, reject) => {
-            // Connect to Socket.IO server
             this.socket = io('http://localhost:5002', {
                 transports: ['polling', 'websocket']
             });
@@ -42,7 +45,6 @@ class VoiceAgent {
 
             this.socket.on('connect_error', (error) => {
                 console.error('WebSocket connection error:', error);
-                this.showError('Failed to connect to server. Please refresh the page.');
                 reject(error);
             });
 
@@ -65,31 +67,32 @@ class VoiceAgent {
         // Recognition started
         this.socket.on('recognition_started', (data) => {
             console.log('Recognition started');
-            this.transcriptionBuffer = "";
         });
 
         // Partial transcription (streaming)
         this.socket.on('transcription_partial', (data) => {
             if (data.session_id === this.sessionId) {
                 console.log('Partial transcription:', data.text);
-                this.transcriptionBuffer = data.text;
-
-                // Update UI with partial result
-                this.updateTranscriptionPreview(data.text);
-
-                // Update debug info
                 document.getElementById('debug-transcript').textContent = data.text;
             }
         });
 
-        // Transcription complete
+        // Transcription complete - auto-respond
         this.socket.on('transcription_complete', (data) => {
             if (data.session_id === this.sessionId) {
                 console.log('Transcription complete:', data.text);
-                const finalText = data.text || this.transcriptionBuffer;
+                const finalText = data.text;
 
                 if (finalText && finalText.trim()) {
-                    this.handleTranscriptionComplete(finalText);
+                    // Update debug
+                    document.getElementById('debug-transcript').textContent = finalText;
+
+                    // Auto-send to LLM
+                    this.updateStatus('thinking', '⋯', 'Thinking');
+                    this.socket.emit('chat', {
+                        session_id: this.sessionId,
+                        message: finalText
+                    });
                 }
             }
         });
@@ -97,8 +100,7 @@ class VoiceAgent {
         // Transcription error
         this.socket.on('transcription_error', (data) => {
             console.error('Transcription error:', data.error);
-            this.showError('Transcription failed. Please try again.');
-            this.updateStatus('sleeping', '💤', 'Ready');
+            this.updateStatus('listening', '◉', 'Listening');
         });
 
         // Recognition stopped
@@ -106,24 +108,29 @@ class VoiceAgent {
             console.log('Recognition stopped');
         });
 
-        // Chat response
+        // Chat response - auto-speak
         this.socket.on('chat_response', (data) => {
             if (data.session_id === this.sessionId) {
                 console.log('Chat response:', data.response);
-
-                // Update debug info
                 document.getElementById('debug-response').textContent = data.response;
 
-                // Add assistant message
-                this.addMessage('assistant', data.response);
-
-                // Synthesize speech
-                this.updateStatus('speaking', '🗣️', 'Speaking...');
+                // Auto-synthesize speech
+                this.updateStatus('speaking', '🗣️', 'Speaking');
+                this.isSpeaking = true;
                 this.synthesizeSpeech(data.response);
             }
         });
 
-        // Synthesis complete
+        // Order updated
+        this.socket.on('order_updated', (data) => {
+            if (data.session_id === this.sessionId) {
+                console.log('Order updated:', data.order);
+                this.currentOrder = data.order;
+                this.updateOrderDisplay();
+            }
+        });
+
+        // Synthesis complete - auto-play
         this.socket.on('synthesis_complete', (data) => {
             if (data.session_id === this.sessionId) {
                 console.log('Synthesis complete:', data.audio_url);
@@ -134,7 +141,7 @@ class VoiceAgent {
         // Error
         this.socket.on('error', (data) => {
             console.error('Server error:', data.message);
-            this.showError(data.message);
+            this.updateStatus('listening', '◉', 'Listening');
         });
     }
 
@@ -146,64 +153,36 @@ class VoiceAgent {
     }
 
     setupEventListeners() {
-        // Talk button
-        const talkBtn = document.getElementById('talk-btn');
-        talkBtn.addEventListener('click', () => this.toggleRecording());
+        // Debug panel toggle
+        const showDebugBtn = document.getElementById('show-debug');
+        const debugPanel = document.getElementById('debug-panel');
+        const closeDebugBtn = document.getElementById('close-debug');
 
-        // Text input fallback
-        const conversationHistory = document.getElementById('conversation-history');
-        conversationHistory.addEventListener('dblclick', () => {
-            this.showTextInput();
+        showDebugBtn.addEventListener('click', () => {
+            debugPanel.classList.remove('hidden');
+            showDebugBtn.classList.add('hidden');
         });
 
-        // Debug toggle
-        const debugToggle = document.getElementById('toggle-debug');
-        const debugContent = document.getElementById('debug-content');
-        debugToggle.addEventListener('click', () => {
-            debugContent.classList.toggle('hidden');
+        closeDebugBtn.addEventListener('click', () => {
+            debugPanel.classList.add('hidden');
+            showDebugBtn.classList.remove('hidden');
         });
 
         // Send order button
         const sendOrderBtn = document.getElementById('send-order-btn');
         sendOrderBtn.addEventListener('click', () => this.sendOrder());
-    }
 
-    showTextInput() {
-        const text = prompt('Enter your message (text input fallback):');
-        if (text && text.trim()) {
-            this.processTextMessage(text.trim());
-        }
-    }
-
-    async processTextMessage(text) {
-        try {
-            // Add user message
-            this.addMessage('user', text);
-            document.getElementById('debug-transcript').textContent = text;
-
-            // Send to server
-            this.updateStatus('thinking', '🤔', 'Thinking...');
-            this.socket.emit('chat', {
-                session_id: this.sessionId,
-                message: text
-            });
-
-        } catch (error) {
-            console.error('Error processing text:', error);
-            this.showError('Failed to process message. Please try again.');
-            this.updateStatus('sleeping', '💤', 'Ready');
-        }
-    }
-
-    async toggleRecording() {
-        if (this.isRecording) {
-            this.stopRecording();
-        } else {
-            await this.startRecording();
-        }
+        // Monitor for barge-in during speech
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && this.isSpeaking) {
+                this.handleBargeIn();
+            }
+        });
     }
 
     async startRecording() {
+        if (this.isRecording) return;
+
         try {
             // Get microphone access
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -242,6 +221,14 @@ class VoiceAgent {
                 this.socket.emit('audio_data', {
                     audio: base64Audio
                 });
+
+                // Check for barge-in during speaking
+                if (this.isSpeaking) {
+                    const volume = this.calculateVolume(inputData);
+                    if (volume > 0.02) { // Voice detected threshold
+                        this.handleBargeIn();
+                    }
+                }
             };
 
             source.connect(processor);
@@ -255,46 +242,40 @@ class VoiceAgent {
                 session_id: this.sessionId
             });
 
-            // Update UI
-            this.updateStatus('listening', '👂', 'Listening...');
-            document.getElementById('talk-btn').classList.add('recording');
-            document.querySelector('.btn-text').textContent = 'Tap to Stop';
-            document.getElementById('recording-indicator').classList.remove('hidden');
+            console.log('✓ Always-listening mode active');
 
         } catch (error) {
             console.error('Failed to start recording:', error);
-            this.showError('Microphone access denied. Double-click conversation area to use text input instead.');
+            alert('Microphone access denied. Please allow microphone access and refresh the page.');
         }
     }
 
-    stopRecording() {
-        if (!this.isRecording) return;
+    calculateVolume(audioData) {
+        let sum = 0;
+        for (let i = 0; i < audioData.length; i++) {
+            sum += audioData[i] * audioData[i];
+        }
+        return Math.sqrt(sum / audioData.length);
+    }
 
-        this.isRecording = false;
+    handleBargeIn() {
+        if (!this.isSpeaking) return;
 
-        // Stop audio processing
-        if (this.audioWorklet) {
-            this.audioWorklet.processor.disconnect();
-            this.audioWorklet.source.disconnect();
-            this.audioWorklet.stream.getTracks().forEach(track => track.stop());
-            this.audioWorklet = null;
+        console.log('Barge-in detected - stopping speech');
+
+        // Stop audio playback immediately
+        if (this.audioPlayer) {
+            this.audioPlayer.pause();
+            this.audioPlayer.currentTime = 0;
         }
 
-        if (this.audioContext) {
-            this.audioContext.close();
-            this.audioContext = null;
-        }
+        this.isSpeaking = false;
+        this.updateStatus('listening', '◉', 'Listening');
 
-        // Stop recognition on server
-        this.socket.emit('stop_recognition', {
+        // Notify server to cancel any pending TTS
+        this.socket.emit('interrupt', {
             session_id: this.sessionId
         });
-
-        // Update UI
-        this.updateStatus('processing', '⚙️', 'Processing...');
-        document.getElementById('talk-btn').classList.remove('recording');
-        document.querySelector('.btn-text').textContent = 'Tap to Talk';
-        document.getElementById('recording-indicator').classList.add('hidden');
     }
 
     arrayBufferToBase64(buffer) {
@@ -307,33 +288,6 @@ class VoiceAgent {
         return window.btoa(binary);
     }
 
-    updateTranscriptionPreview(text) {
-        // Show partial transcription in a preview area
-        const preview = document.getElementById('transcription-preview');
-        if (preview) {
-            preview.textContent = text;
-            preview.style.display = 'block';
-        }
-    }
-
-    handleTranscriptionComplete(text) {
-        // Hide preview
-        const preview = document.getElementById('transcription-preview');
-        if (preview) {
-            preview.style.display = 'none';
-        }
-
-        // Add user message
-        this.addMessage('user', text);
-
-        // Send to chat
-        this.updateStatus('thinking', '🤔', 'Thinking...');
-        this.socket.emit('chat', {
-            session_id: this.sessionId,
-            message: text
-        });
-    }
-
     synthesizeSpeech(text) {
         this.socket.emit('synthesize', {
             session_id: this.sessionId,
@@ -342,68 +296,36 @@ class VoiceAgent {
     }
 
     playAudio(audioUrl) {
-        const audioPlayer = document.getElementById('audio-player');
-        audioPlayer.src = audioUrl;
+        this.audioPlayer = document.getElementById('audio-player');
+        this.audioPlayer.src = audioUrl;
 
-        audioPlayer.onended = () => {
-            this.updateStatus('sleeping', '💤', 'Ready');
+        this.audioPlayer.onended = () => {
+            this.isSpeaking = false;
+            this.updateStatus('listening', '◉', 'Listening');
         };
 
-        audioPlayer.onerror = () => {
+        this.audioPlayer.onerror = () => {
             console.warn('Audio playback failed');
-            this.updateStatus('sleeping', '💤', 'Ready');
+            this.isSpeaking = false;
+            this.updateStatus('listening', '◉', 'Listening');
         };
 
-        audioPlayer.play().catch(err => {
+        this.audioPlayer.play().catch(err => {
             console.warn('Audio play error:', err);
-            this.updateStatus('sleeping', '💤', 'Ready');
+            this.isSpeaking = false;
+            this.updateStatus('listening', '◉', 'Listening');
         });
     }
 
-    addMessage(role, content) {
-        const conversationHistory = document.getElementById('conversation-history');
-
-        // Remove welcome message
-        const welcomeMessage = conversationHistory.querySelector('.welcome-message');
-        if (welcomeMessage) {
-            welcomeMessage.remove();
-        }
-
-        // Create message element
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${role}`;
-
-        const roleLabel = role === 'user' ? 'You' : 'Lily';
-        messageDiv.innerHTML = `
-            <div class="message-role">${roleLabel}</div>
-            <div class="message-content">${this.escapeHtml(content)}</div>
-        `;
-
-        conversationHistory.appendChild(messageDiv);
-        conversationHistory.scrollTop = conversationHistory.scrollHeight;
-    }
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
     updateStatus(state, icon, text) {
-        document.getElementById('status-icon').textContent = icon;
-        document.getElementById('status-text').textContent = text;
-    }
+        const statusIcon = document.getElementById('status-icon');
+        const statusText = document.getElementById('status-text');
 
-    showError(message) {
-        const conversationHistory = document.getElementById('conversation-history');
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'message assistant';
-        errorDiv.innerHTML = `
-            <div class="message-role">System</div>
-            <div class="message-content" style="color: #e53e3e;">⚠️ ${this.escapeHtml(message)}</div>
-        `;
-        conversationHistory.appendChild(errorDiv);
-        conversationHistory.scrollTop = conversationHistory.scrollHeight;
+        statusIcon.textContent = icon;
+        statusText.textContent = text;
+
+        // Update icon class for animations
+        statusIcon.className = 'status-icon ' + state;
     }
 
     updateOrderDisplay() {
@@ -451,12 +373,19 @@ class VoiceAgent {
         console.log('Sending order:', this.currentOrder);
         alert('Order sent to kitchen! (Demo only)');
     }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 }
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', () => {
     window.voiceAgent = new VoiceAgent();
 
-    console.log('%c🎤 Streaming Voice Recognition Enabled', 'color: #667eea; font-size: 14px; font-weight: bold;');
-    console.log('%c💡 Tip: Double-click conversation area for text input fallback', 'color: #667eea; font-size: 12px;');
+    console.log('%c🎤 Always-Listening Voice Agent Active', 'color: #06c; font-size: 14px; font-weight: bold;');
+    console.log('%c💡 Speak naturally - AI responds automatically', 'color: #06c; font-size: 12px;');
+    console.log('%c🔇 Press SPACE or speak to interrupt AI', 'color: #06c; font-size: 12px;');
 });

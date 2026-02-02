@@ -3,94 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CamareraI - Voice Agent</title>
+    <title>CamareraI - Voice Ordering</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1 id="table-name">Table 1 - Lily</h1>
-            <div class="status-indicator">
-                <span id="status-icon">💤</span>
-                <span id="status-text">Sleeping</span>
-            </div>
-        </div>
-
         <!-- Main Content Area -->
         <div class="main-content">
-            <!-- Conversation Display -->
-            <div class="conversation-panel">
-                <div id="conversation-history" class="conversation-history">
-                    <div class="welcome-message">
-                        <p>👋 Hi! I'm Lily, your AI assistant.</p>
-                        <p>Tap the button below to start talking!</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Voice Control -->
-            <div class="voice-control">
-                <button id="talk-btn" class="talk-button">
-                    <span class="btn-icon">🎤</span>
-                    <span class="btn-text">Tap to Talk</span>
-                </button>
-                <div id="recording-indicator" class="recording-indicator hidden">
-                    <div class="pulse"></div>
-                    <span>Listening...</span>
-                </div>
-            </div>
-
-            <!-- Order Summary Panel -->
-            <div class="order-panel">
-                <div class="panel-header">
-                    <h3>📋 Order Summary</h3>
-                    <span id="item-count" class="item-count">0 items</span>
-                </div>
-                <div id="order-items" class="order-items">
-                    <p class="empty-state">No items yet</p>
-                </div>
-                <div class="order-footer">
-                    <div class="total-row">
-                        <span>Subtotal:</span>
-                        <span id="subtotal">$0.00</span>
-                    </div>
-                    <div class="total-row">
-                        <span>Tax (9%):</span>
-                        <span id="tax">$0.00</span>
-                    </div>
-                    <div class="total-row total">
-                        <span>Total:</span>
-                        <span id="total">$0.00</span>
-                    </div>
-                </div>
-                <button id="send-order-btn" class="send-order-btn" disabled>
-                    Send to Kitchen
-                </button>
+            <!-- Status Indicator -->
+            <div class="status-area">
+                <div id="status-icon" class="status-icon">◉</div>
+                <div id="status-text" class="status-text">Listening</div>
             </div>
         </div>
 
-        <!-- Debug Panel (for POC) -->
-        <div class="debug-panel">
-            <button id="toggle-debug" class="debug-toggle">🔧 Debug</button>
-            <div id="debug-content" class="debug-content hidden">
-                <h4>Debug Info</h4>
-                <div id="debug-info">
-                    <p><strong>Session ID:</strong> <span id="debug-session">-</span></p>
-                    <p><strong>Role:</strong> <span id="debug-role">customer</span></p>
-                    <p><strong>Language:</strong> <span id="debug-language">auto</span></p>
-                    <p><strong>Last Transcription:</strong> <span id="debug-transcript">-</span></p>
-                    <p><strong>Last Response:</strong> <span id="debug-response">-</span></p>
+        <!-- Order Summary Panel -->
+        <div class="order-panel">
+            <div class="order-header">
+                <h2>Your Order</h2>
+                <div id="item-count" class="item-count">0 items</div>
+            </div>
+
+            <div id="order-items" class="order-items">
+                <p class="empty-state">No items yet</p>
+            </div>
+
+            <div class="order-totals">
+                <div class="total-row">
+                    <span>Subtotal</span>
+                    <span id="subtotal">$0.00</span>
                 </div>
+                <div class="total-row">
+                    <span>Tax</span>
+                    <span id="tax">$0.00</span>
+                </div>
+                <div class="total-row total-final">
+                    <span>Total</span>
+                    <span id="total">$0.00</span>
+                </div>
+            </div>
+
+            <button id="send-order-btn" class="send-order-btn" disabled>
+                Send to Kitchen
+            </button>
+        </div>
+    </div>
+
+    <!-- Hidden audio player for TTS -->
+    <audio id="audio-player" style="display: none;"></audio>
+
+    <!-- Debug Panel (hidden by default) -->
+    <div id="debug-panel" class="debug-panel hidden">
+        <div class="debug-header">
+            <h3>Debug Info</h3>
+            <button id="close-debug" class="debug-close">×</button>
+        </div>
+        <div id="debug-content" class="debug-content">
+            <div class="debug-item">
+                <strong>Session:</strong>
+                <span id="debug-session">-</span>
+            </div>
+            <div class="debug-item">
+                <strong>Table:</strong>
+                <span id="table-name">-</span>
+            </div>
+            <div class="debug-item">
+                <strong>Transcript:</strong>
+                <div id="debug-transcript" class="debug-transcript">-</div>
+            </div>
+            <div class="debug-item">
+                <strong>Response:</strong>
+                <div id="debug-response" class="debug-response">-</div>
             </div>
         </div>
     </div>
 
-    <!-- Audio element for playing responses -->
-    <audio id="audio-player" style="display: none;"></audio>
+    <!-- Debug toggle button (bottom right) -->
+    <button id="show-debug" class="show-debug-btn">🐛</button>
 
-    <!-- Socket.IO Client -->
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>
