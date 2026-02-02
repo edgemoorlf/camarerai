@@ -152,7 +152,8 @@ class StreamingRecognitionCallback:
         self.session_id = session_id
         self.socketio = socketio_instance
         self.client_sid = client_sid
-        self.full_text = ""
+        self.completed_sentences = []  # Stores finalized sentences
+        self.current_sentence = ""      # Current partial sentence
 
     def on_open(self):
         print(f"[ASR] Connection opened for session {self.session_id}")
@@ -162,9 +163,13 @@ class StreamingRecognitionCallback:
 
     def on_complete(self):
         print(f"[ASR] Recognition complete for session {self.session_id}")
+        # Combine all completed sentences with current partial
+        full_text = " ".join(self.completed_sentences)
+        if self.current_sentence:
+            full_text = (full_text + " " + self.current_sentence).strip()
         self.socketio.emit('transcription_complete', {
             'session_id': self.session_id,
-            'text': self.full_text
+            'text': full_text
         }, room=self.client_sid)
 
     def on_error(self, message):
@@ -200,16 +205,27 @@ class StreamingRecognitionCallback:
                         is_end = last_sentence.get('end', False) or last_sentence.get('sentence_end', False)
 
                 if text:
-                    self.full_text = text
+                    if is_end:
+                        # Sentence is complete, add to completed list
+                        self.completed_sentences.append(text)
+                        self.current_sentence = ""
+                    else:
+                        # Still building current sentence
+                        self.current_sentence = text
+
+                    # Build full text for display (completed + current)
+                    display_text = " ".join(self.completed_sentences)
+                    if self.current_sentence:
+                        display_text = (display_text + " " + self.current_sentence).strip()
 
                     # Send partial result to client
                     self.socketio.emit('transcription_partial', {
                         'session_id': self.session_id,
-                        'text': text,
+                        'text': display_text,
                         'is_final': is_end
                     }, room=self.client_sid)
 
-                    print(f"[ASR] Partial result: {text} (final: {is_end})")
+                    print(f"[ASR] Partial result: {display_text} (final: {is_end})")
 
         except Exception as e:
             print(f"[ASR] Event processing error: {e}")
