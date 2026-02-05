@@ -7,7 +7,7 @@
 
 ## 🎯 Current Implementation
 
-**Active File:** `streaming_voice_agent.py`
+**Active File:** `voice_agent.py`
 **Status:** ✅ Ready to test
 **Architecture:** WebSocket-based streaming ASR
 
@@ -49,7 +49,7 @@ pip install flask-socketio python-socketio eventlet dashscope flask python-doten
 ### 3. Start the Server
 
 ```bash
-python3 streaming_voice_agent.py
+python3 voice_agent.py
 ```
 
 ### 4. Open Browser
@@ -75,7 +75,7 @@ http://localhost:5002
 ### Core Files (Use These)
 
 ```
-streaming_voice_agent.py    # Main server (WebSocket + streaming ASR)
+voice_agent.py               # Main server (WebSocket + streaming ASR)
 dashscope_client.py          # DashScope API wrapper
 test_all.py                  # Complete system check
 test_network.py              # Network diagnostics
@@ -145,7 +145,7 @@ WebSocket connection error
 pip install flask-socketio python-socketio eventlet
 
 # Restart server
-python3 streaming_voice_agent.py
+python3 voice_agent.py
 ```
 
 ### Issue 3: No Transcription Appearing
@@ -424,7 +424,7 @@ MIT License - See LICENSE file for details
 
 ### Start Server
 ```bash
-python3 streaming_voice_agent.py
+python3 voice_agent.py
 ```
 
 ### Run Tests

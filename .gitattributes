@@ -1,0 +1,7 @@
+# Ignore all markdown on merge (keep main's version)
+*.md merge=ours
+
+# But allow these specific ones to merge normally
+README.md merge
+CONTRIBUTING.md merge
+LICENSE.md merge

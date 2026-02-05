@@ -12,7 +12,6 @@ from datetime import datetime
 import uuid
 import base64
 from dotenv import load_dotenv
-import dashscope
 from dashscope.audio.asr import Recognition
 
 load_dotenv()
