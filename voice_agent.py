@@ -88,6 +88,14 @@ class ConversationSession:
         restaurant_name = menu_data.get('restaurant', {}).get('name', 'Golden Dragon')
 
         if self.role == 'customer':
+            # Build current order summary
+            order_summary = "No items yet"
+            if self.current_order:
+                order_items = []
+                for item in self.current_order:
+                    order_items.append(f"- {item['name']} x{item['quantity']} (${item['price']})")
+                order_summary = '\n'.join(order_items)
+
             return f"""You are {self.table_name.split(' - ')[1]}, a friendly AI assistant at {restaurant_name}.
 Help customers order food naturally.
 
@@ -100,7 +108,8 @@ Current context:
 - Table: {self.table_name}
 - Party size: {self.party_size or 'unknown'}
 - Dietary restrictions: {', '.join(self.dietary_restrictions) or 'none'}
-- Current order: {len(self.current_order)} items
+- Current order ({len(self.current_order)} items):
+{order_summary}
 
 Menu highlights:
 {self._get_menu_summary()}
@@ -112,6 +121,7 @@ Guidelines:
 - Confirm quantities and modifications
 - Keep responses concise (2-3 sentences)
 - ALWAYS respond in the customer's language
+- When customer orders items, acknowledge them clearly
 """
         elif self.role == 'owner':
             return f"""You are {self.table_name.split(' - ')[1]}, assistant to the owner of {restaurant_name}.
@@ -411,19 +421,59 @@ def handle_chat(data):
         # Build messages for LLM with order extraction
         system_prompt = session.get_system_prompt()
 
-        # Add order extraction instruction
-        order_extraction_prompt = """
-After responding to the customer, if they mentioned any menu items, extract them in JSON format at the end of your response.
+        # Add order extraction instruction with menu context
+        menu_items_list = []
+        menu = menu_data.get('menu', {})
+        for category, items in menu.items():
+            for item in items:
+                name = item.get('name', {})
+                if isinstance(name, dict):
+                    menu_items_list.append({
+                        'en': name.get('en', ''),
+                        'zh': name.get('zh', ''),
+                        'yue': name.get('yue', ''),
+                        'price': item.get('price', 0),
+                        'id': item.get('id', '')
+                    })
 
-Format:
-[RESPONSE TO CUSTOMER]
+        order_extraction_prompt = f"""
+IMPORTANT: When customer orders items, extract them and format as JSON.
 
-ORDER_UPDATE: {"action": "add|remove|modify", "items": [{"name": "item name", "quantity": 1, "price": 0.0, "modifications": []}]}
+Available menu items:
+{chr(10).join([f"- {item['en']} / {item['zh']} / {item['yue']}: ${item['price']}" for item in menu_items_list[:15]])}
 
-Example:
-好的！我推荐宫保鸡丁，这是我们的招牌菜。
+When customer mentions ordering items, add this at the END of your response:
 
-ORDER_UPDATE: {"action": "add", "items": [{"name": "宫保鸡丁", "quantity": 1, "price": 14.99, "modifications": []}]}
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "Item Name", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+Actions:
+- "add": Customer orders new items
+- "remove": Customer cancels items (e.g., "cancel the soup", "remove the chicken")
+- "modify": Customer changes quantity (e.g., "make that two", "change to three")
+
+Examples:
+Customer: "I'll have the Kung Pao Chicken"
+Response: Great choice! One Kung Pao Chicken coming up.
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "Kung Pao Chicken", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+Customer: "我要宫保鸡丁"
+Response: 好的！一份宫保鸡丁。
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "宫保鸡丁", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+Customer: "Actually, make that two"
+Response: No problem! I'll change that to two orders.
+
+ORDER_UPDATE: {{"action": "modify", "items": [{{"name": "Kung Pao Chicken", "quantity": 2, "price": 14.99, "modifications": []}}]}}
+
+Customer: "Cancel the soup"
+Response: Sure, I'll remove the soup from your order.
+
+ORDER_UPDATE: {{"action": "remove", "items": [{{"name": "Spring Rolls", "quantity": 1, "price": 8.99, "modifications": []}}]}}
+
+ONLY include ORDER_UPDATE when customer is actually ordering/modifying/removing items.
+DO NOT include ORDER_UPDATE for questions, recommendations, or general conversation.
 """
 
         messages = [
@@ -460,27 +510,52 @@ ORDER_UPDATE: {"action": "add", "items": [{"name": "宫保鸡丁", "quantity": 1
 
                 elif order_update['action'] == 'remove':
                     for item in order_update['items']:
-                        # Remove matching items
-                        session.current_order = [o for o in session.current_order if o['name'] != item['name']]
+                        # Remove matching items (match by name in any language)
+                        item_name = item['name'].lower()
+                        session.current_order = [
+                            o for o in session.current_order
+                            if o['name'].lower() != item_name
+                        ]
                         print(f"[Order] Removed: {item['name']}")
 
                 elif order_update['action'] == 'modify':
                     for item in order_update['items']:
-                        # Find and update item
+                        # Find and update item quantity
+                        item_name = item['name'].lower()
+                        found = False
                         for o in session.current_order:
-                            if o['name'] == item['name']:
+                            if o['name'].lower() == item_name:
                                 o['quantity'] = item['quantity']
+                                found = True
                                 print(f"[Order] Modified: {item['name']} -> x{item['quantity']}")
+                                break
+
+                        # If not found, treat as add
+                        if not found:
+                            session.current_order.append(item)
+                            print(f"[Order] Added (via modify): {item['name']} x{item['quantity']}")
+
+                # Calculate order totals
+                subtotal = sum(item['price'] * item['quantity'] for item in session.current_order)
+                tax = subtotal * 0.09
+                total = subtotal + tax
 
                 # Send order update to client
                 emit('order_updated', {
                     'session_id': session_id,
                     'order': session.current_order,
-                    'action': order_update['action']
+                    'action': order_update['action'],
+                    'subtotal': round(subtotal, 2),
+                    'tax': round(tax, 2),
+                    'total': round(total, 2)
                 })
+
+                print(f"[Order] Current order: {len(session.current_order)} items, Total: ${total:.2f}")
 
             except Exception as e:
                 print(f"[Order] Failed to parse order update: {e}")
+                import traceback
+                traceback.print_exc()
 
         # Add AI response to history
         session.add_message('assistant', clean_response)

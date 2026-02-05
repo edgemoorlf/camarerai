@@ -12,6 +12,7 @@ class VoiceAgent {
         this.audioWorklet = null;
         this.currentOrder = [];
         this.audioPlayer = null;
+        this.shouldResetAfterResponse = false;
 
         this.init();
     }
@@ -23,11 +24,8 @@ class VoiceAgent {
         // Set up event listeners
         this.setupEventListeners();
 
-        // Update UI
-        this.updateStatus('listening', '◉', 'Listening');
-
-        // Auto-start recording
-        setTimeout(() => this.startRecording(), 1000);
+        // Don't auto-start - wait for user interaction
+        console.log('Ready. Waiting for user to tap "Touch to Order" button...');
     }
 
     async connectWebSocket() {
@@ -87,6 +85,12 @@ class VoiceAgent {
                     // Update debug
                     document.getElementById('debug-transcript').textContent = finalText;
 
+                    // Check for closing remarks
+                    if (this.isClosingRemark(finalText)) {
+                        console.log('Closing remark detected - will reset after AI response');
+                        this.shouldResetAfterResponse = true;
+                    }
+
                     // Auto-send to LLM
                     this.updateStatus('thinking', '⋯', 'Thinking');
                     this.socket.emit('chat', {
@@ -124,9 +128,16 @@ class VoiceAgent {
         // Order updated
         this.socket.on('order_updated', (data) => {
             if (data.session_id === this.sessionId) {
-                console.log('Order updated:', data.order);
-                this.currentOrder = data.order;
-                this.updateOrderDisplay();
+                console.log('Order updated:', data);
+
+                // Update current order
+                this.currentOrder = data.order || [];
+
+                // Update order display with totals
+                this.updateOrderDisplay(data.subtotal, data.tax, data.total);
+
+                // Log action
+                console.log(`Order ${data.action}: ${this.currentOrder.length} items, Total: $${data.total}`);
             }
         });
 
@@ -153,6 +164,12 @@ class VoiceAgent {
     }
 
     setupEventListeners() {
+        // Start Order button
+        const startOrderBtn = document.getElementById('start-order-btn');
+        if (startOrderBtn) {
+            startOrderBtn.addEventListener('click', () => this.handleStartOrder());
+        }
+
         // Debug panel toggle
         const showDebugBtn = document.getElementById('show-debug');
         const debugPanel = document.getElementById('debug-panel');
@@ -178,6 +195,24 @@ class VoiceAgent {
                 this.handleBargeIn();
             }
         });
+    }
+
+    async handleStartOrder() {
+        console.log('User tapped "Touch to Order" - starting microphone...');
+
+        // Hide start button
+        const startButtonArea = document.getElementById('start-button-area');
+        startButtonArea.classList.add('hidden');
+
+        // Show status area
+        const statusArea = document.getElementById('status-area');
+        statusArea.classList.remove('hidden');
+
+        // Update status
+        this.updateStatus('listening', '◉', 'Listening');
+
+        // Start recording (now with user gesture)
+        await this.startRecording();
     }
 
     async startRecording() {
@@ -301,19 +336,36 @@ class VoiceAgent {
 
         this.audioPlayer.onended = () => {
             this.isSpeaking = false;
-            this.updateStatus('listening', '◉', 'Listening');
+
+            // Check if we should reset to "Touch to Order"
+            if (this.shouldResetAfterResponse) {
+                console.log('Closing remark detected - resetting to "Touch to Order"');
+                this.resetToStartScreen();
+            } else {
+                this.updateStatus('listening', '◉', 'Listening');
+            }
         };
 
         this.audioPlayer.onerror = () => {
             console.warn('Audio playback failed');
             this.isSpeaking = false;
-            this.updateStatus('listening', '◉', 'Listening');
+
+            if (this.shouldResetAfterResponse) {
+                this.resetToStartScreen();
+            } else {
+                this.updateStatus('listening', '◉', 'Listening');
+            }
         };
 
         this.audioPlayer.play().catch(err => {
             console.warn('Audio play error:', err);
             this.isSpeaking = false;
-            this.updateStatus('listening', '◉', 'Listening');
+
+            if (this.shouldResetAfterResponse) {
+                this.resetToStartScreen();
+            } else {
+                this.updateStatus('listening', '◉', 'Listening');
+            }
         });
     }
 
@@ -328,7 +380,7 @@ class VoiceAgent {
         statusIcon.className = 'status-icon ' + state;
     }
 
-    updateOrderDisplay() {
+    updateOrderDisplay(subtotal, tax, total) {
         const orderItems = document.getElementById('order-items');
         const itemCount = document.getElementById('item-count');
         const subtotalEl = document.getElementById('subtotal');
@@ -346,20 +398,34 @@ class VoiceAgent {
             return;
         }
 
-        const subtotal = this.currentOrder.reduce((sum, item) => sum + item.price, 0);
-        const tax = subtotal * 0.09;
-        const total = subtotal + tax;
+        // Calculate totals if not provided
+        if (subtotal === undefined) {
+            subtotal = this.currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            tax = subtotal * 0.09;
+            total = subtotal + tax;
+        }
 
-        itemCount.textContent = `${this.currentOrder.length} item${this.currentOrder.length > 1 ? 's' : ''}`;
+        // Update item count
+        const totalItems = this.currentOrder.reduce((sum, item) => sum + item.quantity, 0);
+        itemCount.textContent = `${totalItems} item${totalItems > 1 ? 's' : ''}`;
+
+        // Update totals
         subtotalEl.textContent = `$${subtotal.toFixed(2)}`;
         taxEl.textContent = `$${tax.toFixed(2)}`;
         totalEl.textContent = `$${total.toFixed(2)}`;
         sendOrderBtn.disabled = false;
 
+        // Build order items HTML
         orderItems.innerHTML = this.currentOrder.map(item => `
             <div class="order-item">
-                <span class="item-name">${this.escapeHtml(item.name)}</span>
-                <span class="item-price">$${item.price.toFixed(2)}</span>
+                <div class="item-details">
+                    <span class="item-name">${this.escapeHtml(item.name)}</span>
+                    ${item.quantity > 1 ? `<span class="item-quantity">x${item.quantity}</span>` : ''}
+                    ${item.modifications && item.modifications.length > 0 ?
+                        `<span class="item-mods">${item.modifications.map(m => this.escapeHtml(m)).join(', ')}</span>`
+                        : ''}
+                </div>
+                <span class="item-price">$${(item.price * item.quantity).toFixed(2)}</span>
             </div>
         `).join('');
     }
@@ -378,6 +444,118 @@ class VoiceAgent {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    isClosingRemark(text) {
+        // Normalize text for comparison
+        const normalized = text.toLowerCase().trim();
+
+        // English closing remarks
+        const englishClosing = [
+            'thank you',
+            'thanks',
+            'that\'s all',
+            'that is all',
+            'that\'ll be all',
+            'that will be all',
+            'please go ahead',
+            'go ahead',
+            'send the order',
+            'place the order',
+            'that\'s it',
+            'that is it',
+            'we\'re done',
+            'we are done',
+            'i\'m done',
+            'i am done',
+            'perfect',
+            'sounds good',
+            'looks good',
+            'all set'
+        ];
+
+        // Chinese closing remarks (Mandarin)
+        const chineseClosing = [
+            '谢谢',
+            '谢了',
+            '好的',
+            '可以了',
+            '就这些',
+            '就这样',
+            '没了',
+            '够了',
+            '行了',
+            '下单吧',
+            '确认',
+            '确定'
+        ];
+
+        // Cantonese closing remarks
+        const cantoneseClosing = [
+            '唔該',
+            '多謝',
+            '得啦',
+            '可以啦',
+            '就咁多',
+            '冇啦',
+            '夠啦',
+            '落單啦'
+        ];
+
+        // Check if text contains any closing remark
+        const allClosingRemarks = [...englishClosing, ...chineseClosing, ...cantoneseClosing];
+
+        return allClosingRemarks.some(phrase => normalized.includes(phrase));
+    }
+
+    resetToStartScreen() {
+        console.log('Resetting to start screen...');
+
+        // Stop recording
+        this.stopRecording();
+
+        // Reset flag
+        this.shouldResetAfterResponse = false;
+
+        // Clear current order
+        this.currentOrder = [];
+        this.updateOrderDisplay();
+
+        // Hide status area
+        const statusArea = document.getElementById('status-area');
+        statusArea.classList.add('hidden');
+
+        // Show start button
+        const startButtonArea = document.getElementById('start-button-area');
+        startButtonArea.classList.remove('hidden');
+
+        console.log('Ready for next customer. Tap "Touch to Order" to start.');
+    }
+
+    stopRecording() {
+        if (!this.isRecording) return;
+
+        this.isRecording = false;
+
+        // Stop audio processing
+        if (this.audioWorklet) {
+            this.audioWorklet.processor.disconnect();
+            this.audioWorklet.source.disconnect();
+            this.audioWorklet.stream.getTracks().forEach(track => track.stop());
+            this.audioWorklet = null;
+        }
+
+        if (this.audioContext) {
+            this.audioContext.close();
+            this.audioContext = null;
+        }
+
+        // Stop recognition on server
+        this.socket.emit('stop_recognition', {
+            session_id: this.sessionId
+        });
+
+        console.log('Recording stopped');
     }
 }
 

@@ -11,8 +11,17 @@
     <div class="container">
         <!-- Main Content Area -->
         <div class="main-content">
-            <!-- Status Indicator -->
-            <div class="status-area">
+            <!-- Touch to Order Button (shown initially) -->
+            <div id="start-button-area" class="start-button-area">
+                <button id="start-order-btn" class="start-order-btn">
+                    <div class="btn-icon">🎤</div>
+                    <div class="btn-text">Touch to Order</div>
+                    <div class="btn-subtitle">Tap to start voice ordering</div>
+                </button>
+            </div>
+
+            <!-- Status Indicator (hidden initially) -->
+            <div id="status-area" class="status-area hidden">
                 <div id="status-icon" class="status-icon">◉</div>
                 <div id="status-text" class="status-text">Listening</div>
             </div>

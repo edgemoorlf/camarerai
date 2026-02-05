@@ -40,6 +40,60 @@ body {
     text-align: center;
 }
 
+.status-area.hidden {
+    display: none;
+}
+
+/* Start Button Area */
+.start-button-area {
+    text-align: center;
+}
+
+.start-button-area.hidden {
+    display: none;
+}
+
+.start-order-btn {
+    background: linear-gradient(135deg, #06c 0%, #0077ed 100%);
+    border: none;
+    border-radius: 24px;
+    padding: 48px 64px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 32px rgba(0, 119, 237, 0.3);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.start-order-btn:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0, 119, 237, 0.4);
+}
+
+.start-order-btn:active {
+    transform: translateY(-2px);
+}
+
+.start-order-btn .btn-icon {
+    font-size: 72px;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+}
+
+.start-order-btn .btn-text {
+    font-size: 32px;
+    font-weight: 600;
+    color: white;
+    letter-spacing: -0.5px;
+}
+
+.start-order-btn .btn-subtitle {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 400;
+}
+
 .status-icon {
     font-size: 80px;
     margin-bottom: 24px;
@@ -120,12 +174,19 @@ body {
     border-bottom: 1px solid #f5f5f7;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     animation: slideIn 0.3s ease-out;
 }
 
 .order-item:last-child {
     border-bottom: none;
+}
+
+.item-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 .item-name {
@@ -134,10 +195,23 @@ body {
     font-size: 17px;
 }
 
+.item-quantity {
+    font-size: 14px;
+    color: #06c;
+    font-weight: 600;
+}
+
+.item-mods {
+    font-size: 13px;
+    color: #86868b;
+    font-style: italic;
+}
+
 .item-price {
     color: #1d1d1f;
     font-weight: 600;
     font-size: 17px;
+    margin-left: 16px;
 }
 
 .order-totals {
