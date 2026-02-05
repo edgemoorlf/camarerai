@@ -14,6 +14,12 @@ class VoiceAgent {
         this.audioPlayer = null;
         this.shouldResetAfterResponse = false;
 
+        // Client-side speaker verification
+        this.speakerVerifier = new ClientSpeakerVerifier(0.75); // threshold
+        this.enrollmentAudioBuffer = [];
+        this.enrollmentDuration = 2.5; // seconds
+        this.isEnrolling = false;
+
         this.init();
     }
 
@@ -198,11 +204,122 @@ class VoiceAgent {
     }
 
     async handleStartOrder() {
-        console.log('User tapped "Touch to Order" - starting microphone...');
+        console.log('User tapped "Touch to Order" - starting enrollment...');
 
         // Hide start button
         const startButtonArea = document.getElementById('start-button-area');
         startButtonArea.classList.add('hidden');
+
+        // Show enrollment prompt
+        const enrollmentArea = document.getElementById('enrollment-area');
+        if (enrollmentArea) {
+            enrollmentArea.classList.remove('hidden');
+            this.updateEnrollmentStatus('Please say: "Hello, I\'d like to order"');
+        }
+
+        // Start enrollment recording
+        await this.startEnrollmentRecording();
+    }
+
+    async startEnrollmentRecording() {
+        console.log('[Enrollment] Starting...');
+        this.isEnrolling = true;
+        this.enrollmentAudioBuffer = [];
+
+        try {
+            // Get microphone access
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000,
+                    echoCancellation: true,
+                    noiseSuppression: true
+                }
+            });
+
+            // Create audio context
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 16000
+            });
+
+            const source = this.audioContext.createMediaStreamSource(stream);
+            const processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+
+            const startTime = Date.now();
+
+            processor.onaudioprocess = (e) => {
+                if (!this.isEnrolling) return;
+
+                const inputData = e.inputBuffer.getChannelData(0);
+
+                // Buffer audio for enrollment
+                const buffer = new Float32Array(inputData.length);
+                buffer.set(inputData);
+                this.enrollmentAudioBuffer.push(buffer);
+
+                // Check if we've collected enough audio
+                const elapsed = (Date.now() - startTime) / 1000;
+                if (elapsed >= this.enrollmentDuration) {
+                    this.completeEnrollment(processor, source, stream);
+                }
+            };
+
+            source.connect(processor);
+            processor.connect(this.audioContext.destination);
+
+            this.audioWorklet = { source, processor, stream };
+
+            console.log('[Enrollment] Recording started');
+
+        } catch (error) {
+            console.error('[Enrollment] Failed:', error);
+            alert('Microphone access denied. Please allow microphone access and refresh the page.');
+            this.isEnrolling = false;
+        }
+    }
+
+    completeEnrollment(processor, source, stream) {
+        console.log('[Enrollment] Completing...');
+        this.isEnrolling = false;
+
+        // Stop audio processing
+        processor.disconnect();
+        source.disconnect();
+        stream.getTracks().forEach(track => track.stop());
+
+        // Concatenate all audio buffers
+        const totalLength = this.enrollmentAudioBuffer.reduce((sum, buf) => sum + buf.length, 0);
+        const enrollmentAudio = new Float32Array(totalLength);
+        let offset = 0;
+        for (const buf of this.enrollmentAudioBuffer) {
+            enrollmentAudio.set(buf, offset);
+            offset += buf.length;
+        }
+
+        // Enroll speaker (client-side)
+        this.updateEnrollmentStatus('Processing...');
+        const result = this.speakerVerifier.enroll(enrollmentAudio);
+
+        console.log('[Enrollment] Result:', result);
+
+        if (result.success) {
+            console.log('[Enrollment] ✓ Success - speaker enrolled');
+            this.onEnrollmentComplete();
+        } else {
+            console.error('[Enrollment] ✗ Failed:', result.message);
+            // Continue anyway
+            this.onEnrollmentComplete();
+        }
+    }
+
+    onEnrollmentComplete() {
+        console.log('[Enrollment] Complete, starting normal ordering...');
+
+        // Hide enrollment area
+        const enrollmentArea = document.getElementById('enrollment-area');
+        if (enrollmentArea) {
+            enrollmentArea.classList.add('hidden');
+        }
 
         // Show status area
         const statusArea = document.getElementById('status-area');
@@ -211,8 +328,15 @@ class VoiceAgent {
         // Update status
         this.updateStatus('listening', '◉', 'Listening');
 
-        // Start recording (now with user gesture)
-        await this.startRecording();
+        // Start normal recording
+        this.startRecording();
+    }
+
+    updateEnrollmentStatus(text) {
+        const statusEl = document.getElementById('enrollment-status');
+        if (statusEl) {
+            statusEl.textContent = text;
+        }
     }
 
     async startRecording() {
@@ -258,9 +382,23 @@ class VoiceAgent {
                 });
 
                 // Check for barge-in during speaking
-                if (this.isSpeaking) {
+                if (this.isSpeaking && this.speakerVerifier.isEnrolled()) {
                     const volume = this.calculateVolume(inputData);
                     if (volume > 0.02) { // Voice detected threshold
+                        // Verify speaker (client-side, no network latency!)
+                        const result = this.speakerVerifier.verify(inputData);
+
+                        if (result.isMatch) {
+                            console.log(`[Barge-in] ✓ Verified (similarity: ${result.similarity.toFixed(3)})`);
+                            this.handleBargeIn();
+                        } else {
+                            console.log(`[Barge-in] ✗ Rejected (similarity: ${result.similarity.toFixed(3)}) - not customer`);
+                        }
+                    }
+                } else if (this.isSpeaking && !this.speakerVerifier.isEnrolled()) {
+                    // No enrollment - use old behavior (any voice triggers barge-in)
+                    const volume = this.calculateVolume(inputData);
+                    if (volume > 0.02) {
                         this.handleBargeIn();
                     }
                 }
