@@ -18,6 +18,7 @@ class VoiceAgent {
         this.enrollmentAudioBuffer = [];
         this.enrollmentDuration = 2.5; // seconds
         this.isEnrolling = false;
+        this.lastVerificationTime = 0; // Throttle verification requests
 
         this.init();
     }
@@ -179,6 +180,14 @@ class VoiceAgent {
         this.socket.on('verification_result', (data) => {
             if (data.session_id === this.sessionId) {
                 console.log('Verification:', data.is_match, 'similarity:', data.similarity);
+
+                // If speaker matches, trigger barge-in
+                if (data.is_match) {
+                    console.log(`✓ Barge-in verified (similarity: ${data.similarity.toFixed(3)})`);
+                    this.handleBargeIn();
+                } else {
+                    console.log(`✗ Barge-in rejected (similarity: ${data.similarity.toFixed(3)}) - not customer`);
+                }
             }
         });
     }
@@ -403,9 +412,16 @@ class VoiceAgent {
                 });
 
                 // Check for barge-in during speaking
-                if (this.isSpeaking) {
+                if (this.isSpeaking && this.speakerEnrolled) {
                     const volume = this.calculateVolume(inputData);
                     if (volume > 0.02) { // Voice detected threshold
+                        // Voice detected - verify it's the customer before barge-in
+                        this.verifyAndBargeIn(pcmData);
+                    }
+                } else if (this.isSpeaking && !this.speakerEnrolled) {
+                    // No enrollment - use old behavior (any voice triggers barge-in)
+                    const volume = this.calculateVolume(inputData);
+                    if (volume > 0.02) {
                         this.handleBargeIn();
                     }
                 }
@@ -436,6 +452,25 @@ class VoiceAgent {
             sum += audioData[i] * audioData[i];
         }
         return Math.sqrt(sum / audioData.length);
+    }
+
+    verifyAndBargeIn(pcmData) {
+        // Throttle verification requests (avoid sending too many)
+        const now = Date.now();
+        if (this.lastVerificationTime && (now - this.lastVerificationTime) < 500) {
+            // Skip if we verified less than 500ms ago
+            return;
+        }
+        this.lastVerificationTime = now;
+
+        // Convert to base64 and send for verification
+        const base64Audio = this.arrayBufferToBase64(pcmData.buffer);
+
+        // Send for verification
+        this.socket.emit('verify_speaker', {
+            session_id: this.sessionId,
+            audio: base64Audio
+        });
     }
 
     handleBargeIn() {
