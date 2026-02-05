@@ -6,6 +6,7 @@
     <title>CamareraI - Voice Ordering</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/static/speaker_fingerprint.js"></script>
 </head>
 <body>
     <div class="container">
@@ -18,6 +19,14 @@
                     <div class="btn-text">Touch to Order</div>
                     <div class="btn-subtitle">Tap to start voice ordering</div>
                 </button>
+            </div>
+
+            <!-- Enrollment Area (hidden initially) -->
+            <div id="enrollment-area" class="enrollment-area hidden">
+                <div class="enrollment-icon">🎤</div>
+                <div class="enrollment-text">Please say:</div>
+                <div class="enrollment-phrase">"Hello, I'd like to order"</div>
+                <div id="enrollment-status" class="enrollment-status">Listening...</div>
             </div>
 
             <!-- Status Indicator (hidden initially) -->
