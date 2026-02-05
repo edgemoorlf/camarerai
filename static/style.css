@@ -53,6 +53,43 @@ body {
     display: none;
 }
 
+/* Enrollment Area */
+.enrollment-area {
+    text-align: center;
+}
+
+.enrollment-area.hidden {
+    display: none;
+}
+
+.enrollment-icon {
+    font-size: 80px;
+    margin-bottom: 24px;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.enrollment-text {
+    font-size: 20px;
+    color: #86868b;
+    margin-bottom: 10px;
+}
+
+.enrollment-phrase {
+    font-size: 28px;
+    font-weight: 600;
+    color: #06c;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: rgba(0, 102, 204, 0.05);
+    border-radius: 12px;
+}
+
+.enrollment-status {
+    font-size: 16px;
+    color: #86868b;
+    font-weight: 500;
+}
+
 .start-order-btn {
     background: linear-gradient(135deg, #06c 0%, #0077ed 100%);
     border: none;

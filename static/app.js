@@ -13,6 +13,11 @@ class VoiceAgent {
         this.currentOrder = [];
         this.audioPlayer = null;
         this.shouldResetAfterResponse = false;
+        // Speaker verification
+        this.speakerEnrolled = false;
+        this.enrollmentAudioBuffer = [];
+        this.enrollmentDuration = 2.5; // seconds
+        this.isEnrolling = false;
 
         this.init();
     }
@@ -154,6 +159,28 @@ class VoiceAgent {
             console.error('Server error:', data.message);
             this.updateStatus('listening', '◉', 'Listening');
         });
+
+        // Enrollment result
+        this.socket.on('enrollment_result', (data) => {
+            if (data.session_id === this.sessionId) {
+                console.log('Enrollment result:', data.success, data.message);
+                if (data.success) {
+                    this.speakerEnrolled = true;
+                    this.onEnrollmentComplete();
+                } else {
+                    console.error('Enrollment failed:', data.message);
+                    // Retry or continue without enrollment
+                    this.onEnrollmentComplete();
+                }
+            }
+        });
+
+        // Verification result (optional)
+        this.socket.on('verification_result', (data) => {
+            if (data.session_id === this.sessionId) {
+                console.log('Verification:', data.is_match, 'similarity:', data.similarity);
+            }
+        });
     }
 
     createSession() {
@@ -198,11 +225,122 @@ class VoiceAgent {
     }
 
     async handleStartOrder() {
-        console.log('User tapped "Touch to Order" - starting microphone...');
+        console.log('User tapped "Touch to Order" - starting enrollment...');
 
         // Hide start button
         const startButtonArea = document.getElementById('start-button-area');
         startButtonArea.classList.add('hidden');
+
+        // Show enrollment prompt
+        const enrollmentArea = document.getElementById('enrollment-area');
+        enrollmentArea.classList.remove('hidden');
+
+        // Update enrollment status
+        this.updateEnrollmentStatus('Please say: "Hello, I\'d like to order"');
+
+        // Start enrollment recording
+        await this.startEnrollmentRecording();
+    }
+
+    async startEnrollmentRecording() {
+        console.log('Starting enrollment recording...');
+        this.isEnrolling = true;
+        this.enrollmentAudioBuffer = [];
+
+        try {
+            // Get microphone access
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000,
+                    echoCancellation: true,
+                    noiseSuppression: true
+                }
+            });
+
+            // Create audio context
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 16000
+            });
+
+            const source = this.audioContext.createMediaStreamSource(stream);
+            const processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+
+            const startTime = Date.now();
+
+            processor.onaudioprocess = (e) => {
+                if (!this.isEnrolling) return;
+
+                const inputData = e.inputBuffer.getChannelData(0);
+
+                // Convert Float32Array to Int16Array (PCM)
+                const pcmData = new Int16Array(inputData.length);
+                for (let i = 0; i < inputData.length; i++) {
+                    const s = Math.max(-1, Math.min(1, inputData[i]));
+                    pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                }
+
+                // Buffer audio for enrollment
+                this.enrollmentAudioBuffer.push(pcmData);
+
+                // Check if we've collected enough audio
+                const elapsed = (Date.now() - startTime) / 1000;
+                if (elapsed >= this.enrollmentDuration) {
+                    this.completeEnrollment(processor, source, stream);
+                }
+            };
+
+            source.connect(processor);
+            processor.connect(this.audioContext.destination);
+
+            this.audioWorklet = { source, processor, stream };
+
+            console.log('✓ Enrollment recording started');
+
+        } catch (error) {
+            console.error('Failed to start enrollment:', error);
+            alert('Microphone access denied. Please allow microphone access and refresh the page.');
+            this.isEnrolling = false;
+        }
+    }
+
+    completeEnrollment(processor, source, stream) {
+        console.log('Completing enrollment...');
+        this.isEnrolling = false;
+
+        // Stop audio processing
+        processor.disconnect();
+        source.disconnect();
+        stream.getTracks().forEach(track => track.stop());
+
+        // Concatenate all audio buffers
+        const totalLength = this.enrollmentAudioBuffer.reduce((sum, buf) => sum + buf.length, 0);
+        const enrollmentAudio = new Int16Array(totalLength);
+        let offset = 0;
+        for (const buf of this.enrollmentAudioBuffer) {
+            enrollmentAudio.set(buf, offset);
+            offset += buf.length;
+        }
+
+        // Convert to base64
+        const base64Audio = this.arrayBufferToBase64(enrollmentAudio.buffer);
+
+        // Send to server for enrollment
+        this.updateEnrollmentStatus('Processing...');
+        this.socket.emit('enroll_speaker', {
+            session_id: this.sessionId,
+            audio: base64Audio
+        });
+
+        console.log(`Sent ${enrollmentAudio.length} samples for enrollment`);
+    }
+
+    onEnrollmentComplete() {
+        console.log('Enrollment complete, starting normal ordering...');
+
+        // Hide enrollment area
+        const enrollmentArea = document.getElementById('enrollment-area');
+        enrollmentArea.classList.add('hidden');
 
         // Show status area
         const statusArea = document.getElementById('status-area');
@@ -211,8 +349,15 @@ class VoiceAgent {
         // Update status
         this.updateStatus('listening', '◉', 'Listening');
 
-        // Start recording (now with user gesture)
-        await this.startRecording();
+        // Start normal recording
+        this.startRecording();
+    }
+
+    updateEnrollmentStatus(text) {
+        const statusEl = document.getElementById('enrollment-status');
+        if (statusEl) {
+            statusEl.textContent = text;
+        }
     }
 
     async startRecording() {
