@@ -6,6 +6,7 @@ Real-time ASR with streaming audio input
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 from dashscope_client import DashScopeClient
+from speaker_verification import SpeakerVerifier
 import json
 import os
 from datetime import datetime
@@ -13,6 +14,7 @@ import uuid
 import base64
 from dotenv import load_dotenv
 from dashscope.audio.asr import Recognition
+import numpy as np
 
 load_dotenv()
 
@@ -65,6 +67,9 @@ class ConversationSession:
         self.conversation_history = []
         self.created_at = datetime.now()
         self.speakers = {}
+        # Speaker verification
+        self.speaker_verifier = SpeakerVerifier(threshold=0.7)
+        self.enrollment_audio_buffer = []  # Buffer for enrollment audio
 
     def _assign_table_name(self):
         """Assign a unique table name"""
@@ -400,6 +405,84 @@ def handle_stop_recognition(data):
     except Exception as e:
         print(f"[ASR] Stop recognition error: {e}")
         emit('error', {'message': f'Failed to stop recognition: {str(e)}'})
+
+
+@socketio.on('enroll_speaker')
+def handle_enroll_speaker(data):
+    """Enroll speaker from audio sample for barge-in filtering"""
+    session_id = data.get('session_id')
+    audio_base64 = data.get('audio')
+
+    if not session_id or session_id not in sessions:
+        emit('error', {'message': 'Invalid session'})
+        return
+
+    session = sessions[session_id]
+
+    try:
+        # Decode audio
+        audio_bytes = base64.b64decode(audio_base64)
+
+        # Convert to float32 numpy array (16kHz, mono)
+        audio_array = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # Enroll speaker
+        success, message = session.speaker_verifier.enroll_speaker(audio_array)
+
+        print(f"[Speaker] Enrollment {'succeeded' if success else 'failed'}: {message}")
+
+        emit('enrollment_result', {
+            'session_id': session_id,
+            'success': success,
+            'message': message
+        })
+
+    except Exception as e:
+        print(f"[Speaker] Enrollment error: {e}")
+        import traceback
+        traceback.print_exc()
+        emit('enrollment_result', {
+            'session_id': session_id,
+            'success': False,
+            'message': f'Enrollment failed: {str(e)}'
+        })
+
+
+@socketio.on('verify_speaker')
+def handle_verify_speaker(data):
+    """Verify speaker for barge-in (optional - can be done in audio_data)"""
+    session_id = data.get('session_id')
+    audio_base64 = data.get('audio')
+
+    if not session_id or session_id not in sessions:
+        emit('error', {'message': 'Invalid session'})
+        return
+
+    session = sessions[session_id]
+
+    try:
+        # Decode audio
+        audio_bytes = base64.b64decode(audio_base64)
+
+        # Convert to float32 numpy array
+        audio_array = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # Verify speaker
+        is_match, similarity = session.speaker_verifier.verify_speaker(audio_array)
+
+        emit('verification_result', {
+            'session_id': session_id,
+            'is_match': is_match,
+            'similarity': float(similarity)
+        })
+
+    except Exception as e:
+        print(f"[Speaker] Verification error: {e}")
+        emit('verification_result', {
+            'session_id': session_id,
+            'is_match': True,  # Fail open on error
+            'similarity': 0.0
+        })
 
 
 @socketio.on('chat')
