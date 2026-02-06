@@ -10,9 +10,14 @@ class VoiceAgent {
         this.mediaRecorder = null;
         this.audioContext = null;
         this.audioWorklet = null;
-        this.currentOrder = [];
         this.audioPlayer = null;
-        this.shouldResetAfterResponse = false;
+
+        // Session state management
+        this.sessionState = 'idle';  // idle, enrolling, ordering, confirmed
+
+        // Order management
+        this.confirmedItems = [];    // Locked items after confirmation
+        this.currentOrder = [];      // New items being added
 
         // Client-side speaker verification
         this.speakerVerifier = new ClientSpeakerVerifier(0.75); // threshold
@@ -63,9 +68,36 @@ class VoiceAgent {
         // Session created
         this.socket.on('session_created', (data) => {
             this.sessionId = data.session_id;
+            this.sessionState = data.state || 'idle';
             document.getElementById('table-name').textContent = data.table_name;
             document.getElementById('debug-session').textContent = this.sessionId;
             console.log('Session created:', data);
+        });
+
+        // State changed
+        this.socket.on('state_changed', (data) => {
+            if (data.session_id === this.sessionId) {
+                console.log('[Session] State changed:', data.state);
+                this.sessionState = data.state;
+
+                if (data.state === 'confirmed') {
+                    // Order confirmed - update UI
+                    this.confirmedItems = data.confirmed_items || [];
+                    this.currentOrder = [];
+                    this.updateButton('confirmed');
+                    this.updateOrderDisplay(data.subtotal, data.tax, data.total);
+                } else if (data.state === 'ordering') {
+                    this.updateButton('ordering');
+                }
+            }
+        });
+
+        // Session reset
+        this.socket.on('session_reset', (data) => {
+            if (data.session_id === this.sessionId) {
+                console.log('[Session] Reset:', data.message);
+                this.resetToStartScreen();
+            }
         });
 
         // Recognition started
@@ -136,14 +168,16 @@ class VoiceAgent {
             if (data.session_id === this.sessionId) {
                 console.log('Order updated:', data);
 
-                // Update current order
-                this.currentOrder = data.order || [];
+                // Update confirmed and current orders
+                this.confirmedItems = data.confirmed_items || [];
+                this.currentOrder = data.current_order || [];
 
                 // Update order display with totals
                 this.updateOrderDisplay(data.subtotal, data.tax, data.total);
 
                 // Log action
-                console.log(`Order ${data.action}: ${this.currentOrder.length} items, Total: $${data.total}`);
+                const totalItems = this.confirmedItems.length + this.currentOrder.length;
+                console.log(`Order ${data.action}: ${totalItems} items (${this.confirmedItems.length} confirmed, ${this.currentOrder.length} new), Total: $${data.total}`);
             }
         });
 
@@ -204,7 +238,26 @@ class VoiceAgent {
     }
 
     async handleStartOrder() {
+        console.log('User tapped button...');
+
+        if (this.sessionState === 'confirmed') {
+            // "Tap for Anything" - resume conversation
+            console.log('[Session] Resuming conversation in CONFIRMED state');
+
+            // Hide button
+            const startButtonArea = document.getElementById('start-button-area');
+            startButtonArea.classList.add('hidden');
+
+            // Resume listening
+            this.updateStatus('listening', '◉', 'Listening');
+
+            // Notify backend (optional - state remains CONFIRMED)
+            return;
+        }
+
+        // Normal flow: "Touch to Order" - start enrollment
         console.log('User tapped "Touch to Order" - starting enrollment...');
+        this.sessionState = 'enrolling';
 
         // Hide start button
         const startButtonArea = document.getElementById('start-button-area');
@@ -315,6 +368,14 @@ class VoiceAgent {
     onEnrollmentComplete() {
         console.log('[Enrollment] Complete, starting normal ordering...');
 
+        // Update session state
+        this.sessionState = 'ordering';
+
+        // Notify backend of state transition
+        this.socket.emit('start_ordering', {
+            session_id: this.sessionId
+        });
+
         // Hide enrollment area
         const enrollmentArea = document.getElementById('enrollment-area');
         if (enrollmentArea) {
@@ -324,6 +385,10 @@ class VoiceAgent {
         // Show status area
         const statusArea = document.getElementById('status-area');
         statusArea.classList.remove('hidden');
+
+        // Show order panel
+        const orderPanel = document.getElementById('order-panel');
+        orderPanel.classList.remove('hidden');
 
         // Update status
         this.updateStatus('listening', '◉', 'Listening');
@@ -520,52 +585,79 @@ class VoiceAgent {
 
     updateOrderDisplay(subtotal, tax, total) {
         const orderItems = document.getElementById('order-items');
+        const confirmedSection = document.getElementById('confirmed-section');
+        const confirmedItemsEl = document.getElementById('confirmed-items');
+        const newSection = document.getElementById('new-section');
+        const newItemsEl = document.getElementById('new-items');
         const itemCount = document.getElementById('item-count');
         const subtotalEl = document.getElementById('subtotal');
         const taxEl = document.getElementById('tax');
         const totalEl = document.getElementById('total');
         const sendOrderBtn = document.getElementById('send-order-btn');
 
-        if (this.currentOrder.length === 0) {
-            orderItems.innerHTML = '<p class="empty-state">No items yet</p>';
-            itemCount.textContent = '0 items';
-            subtotalEl.textContent = '$0.00';
-            taxEl.textContent = '$0.00';
-            totalEl.textContent = '$0.00';
-            sendOrderBtn.disabled = true;
-            return;
-        }
-
         // Calculate totals if not provided
+        const allItems = [...this.confirmedItems, ...this.currentOrder];
         if (subtotal === undefined) {
-            subtotal = this.currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            subtotal = allItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             tax = subtotal * 0.09;
             total = subtotal + tax;
         }
 
         // Update item count
-        const totalItems = this.currentOrder.reduce((sum, item) => sum + item.quantity, 0);
+        const totalItems = allItems.reduce((sum, item) => sum + item.quantity, 0);
         itemCount.textContent = `${totalItems} item${totalItems > 1 ? 's' : ''}`;
 
         // Update totals
         subtotalEl.textContent = `$${subtotal.toFixed(2)}`;
         taxEl.textContent = `$${tax.toFixed(2)}`;
         totalEl.textContent = `$${total.toFixed(2)}`;
-        sendOrderBtn.disabled = false;
 
-        // Build order items HTML
-        orderItems.innerHTML = this.currentOrder.map(item => `
-            <div class="order-item">
-                <div class="item-details">
-                    <span class="item-name">${this.escapeHtml(item.name)}</span>
-                    ${item.quantity > 1 ? `<span class="item-quantity">x${item.quantity}</span>` : ''}
-                    ${item.modifications && item.modifications.length > 0 ?
-                        `<span class="item-mods">${item.modifications.map(m => this.escapeHtml(m)).join(', ')}</span>`
-                        : ''}
-                </div>
-                <span class="item-price">$${(item.price * item.quantity).toFixed(2)}</span>
-            </div>
-        `).join('');
+        // Show/hide confirmed section
+        if (this.confirmedItems.length > 0 && confirmedSection) {
+            confirmedSection.classList.remove('hidden');
+            if (confirmedItemsEl) {
+                confirmedItemsEl.innerHTML = this.confirmedItems.map(item => `
+                    <div class="order-item locked">
+                        <div class="item-details">
+                            <span class="item-name">${this.escapeHtml(item.name)}</span>
+                            ${item.quantity > 1 ? `<span class="item-quantity">x${item.quantity}</span>` : ''}
+                        </div>
+                        <span class="item-price">$${(item.price * item.quantity).toFixed(2)}</span>
+                    </div>
+                `).join('');
+            }
+        } else if (confirmedSection) {
+            confirmedSection.classList.add('hidden');
+        }
+
+        // Show/hide new items section
+        if (this.currentOrder.length > 0 && newSection) {
+            newSection.classList.remove('hidden');
+            if (newItemsEl) {
+                newItemsEl.innerHTML = this.currentOrder.map(item => `
+                    <div class="order-item">
+                        <div class="item-details">
+                            <span class="item-name">${this.escapeHtml(item.name)}</span>
+                            ${item.quantity > 1 ? `<span class="item-quantity">x${item.quantity}</span>` : ''}
+                        </div>
+                        <span class="item-price">$${(item.price * item.quantity).toFixed(2)}</span>
+                    </div>
+                `).join('');
+            }
+        } else if (newSection) {
+            newSection.classList.add('hidden');
+        }
+
+        // If no items at all, show empty state
+        if (allItems.length === 0) {
+            orderItems.innerHTML = '<p class="empty-state">No items yet</p>';
+            if (confirmedSection) confirmedSection.classList.add('hidden');
+            if (newSection) newSection.classList.add('hidden');
+            sendOrderBtn.disabled = true;
+        } else {
+            orderItems.innerHTML = ''; // Clear empty state
+            sendOrderBtn.disabled = false;
+        }
     }
 
     addOrderItem(name, price) {
@@ -652,22 +744,53 @@ class VoiceAgent {
         // Stop recording
         this.stopRecording();
 
-        // Reset flag
-        this.shouldResetAfterResponse = false;
+        // Reset session state
+        this.sessionState = 'idle';
 
-        // Clear current order
+        // Clear orders
+        this.confirmedItems = [];
         this.currentOrder = [];
         this.updateOrderDisplay();
+
+        // Reset speaker verification
+        this.speakerVerifier.reset();
 
         // Hide status area
         const statusArea = document.getElementById('status-area');
         statusArea.classList.add('hidden');
 
+        // Hide order panel
+        const orderPanel = document.getElementById('order-panel');
+        orderPanel.classList.add('hidden');
+
         // Show start button
         const startButtonArea = document.getElementById('start-button-area');
         startButtonArea.classList.remove('hidden');
 
+        // Reset button text
+        this.updateButton('idle');
+
         console.log('Ready for next customer. Tap "Touch to Order" to start.');
+    }
+
+    updateButton(state) {
+        const button = document.getElementById('start-order-btn');
+        if (!button) return;
+
+        switch(state) {
+            case 'idle':
+                button.textContent = 'Touch to Order';
+                break;
+
+            case 'enrolling':
+            case 'ordering':
+                // Button hidden during these states
+                break;
+
+            case 'confirmed':
+                button.textContent = 'Tap for Anything';
+                break;
+        }
     }
 
     stopRecording() {
