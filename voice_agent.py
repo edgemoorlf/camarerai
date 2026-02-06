@@ -499,7 +499,31 @@ DO NOT include ORDER_UPDATE for questions, recommendations, or general conversat
             clean_response = parts[0].strip()
             try:
                 import json
-                order_json = parts[1].strip()
+                # Extract only the JSON object, ignoring any extra text after
+                order_text = parts[1].strip()
+
+                # Find the JSON object boundaries
+                start_idx = order_text.find('{')
+                if start_idx == -1:
+                    raise ValueError("No JSON object found after ORDER_UPDATE:")
+
+                # Find matching closing brace
+                brace_count = 0
+                end_idx = -1
+                for i in range(start_idx, len(order_text)):
+                    if order_text[i] == '{':
+                        brace_count += 1
+                    elif order_text[i] == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end_idx = i + 1
+                            break
+
+                if end_idx == -1:
+                    raise ValueError("No matching closing brace found in ORDER_UPDATE JSON")
+
+                order_json = order_text[start_idx:end_idx]
+                print(f"[Order] Extracted JSON: {order_json}")
                 order_update = json.loads(order_json)
 
                 # Process order update
@@ -556,6 +580,23 @@ DO NOT include ORDER_UPDATE for questions, recommendations, or general conversat
                 print(f"[Order] Failed to parse order update: {e}")
                 import traceback
                 traceback.print_exc()
+
+        # If clean_response is empty (ORDER_UPDATE at beginning), use a default acknowledgment
+        if not clean_response or not clean_response.strip():
+            # Determine language from last user message
+            last_user_msg = next((msg['content'] for msg in reversed(session.conversation_history) if msg['role'] == 'user'), '')
+
+            # Simple language detection based on character ranges
+            if any('\u4e00' <= c <= '\u9fff' for c in last_user_msg):
+                # Chinese characters detected
+                if any(c in '係咩嘅啲' for c in last_user_msg):
+                    clean_response = "好嘅！"  # Cantonese
+                else:
+                    clean_response = "好的！"  # Mandarin
+            else:
+                clean_response = "Got it!"  # English
+
+            print(f"[Order] Empty response, using default: {clean_response}")
 
         # Add AI response to history
         session.add_message('assistant', clean_response)
