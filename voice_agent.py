@@ -50,6 +50,14 @@ table_names = load_json_data('table_names.json')
 voices_data = load_json_data('voices.json')
 
 
+class SessionState:
+    """Session state constants"""
+    IDLE = 'idle'
+    ENROLLING = 'enrolling'
+    ORDERING = 'ordering'
+    CONFIRMED = 'confirmed'
+
+
 class ConversationSession:
     """Manages a conversation session for a table"""
 
@@ -61,9 +69,18 @@ class ConversationSession:
         self.language = 'en'
         self.party_size = None
         self.dietary_restrictions = []
-        self.current_order = []
+
+        # Session state management
+        self.state = SessionState.IDLE
+
+        # Order management
+        self.current_order = []        # Items being added (editable in ORDERING state)
+        self.confirmed_items = []      # Items locked after confirmation
+        self.order_confirmed_at = None
+
         self.conversation_history = []
         self.created_at = datetime.now()
+        self.last_activity = datetime.now()
         self.speakers = {}
 
     def _assign_table_name(self):
@@ -81,7 +98,38 @@ class ConversationSession:
             'speaker_id': speaker_id
         }
         self.conversation_history.append(message)
+        self.last_activity = datetime.now()
         return message
+
+    def _is_closing_remark(self, message):
+        """Check if message is a closing remark"""
+        message_lower = message.lower().strip()
+
+        # English closing remarks
+        english_closings = [
+            'thank you', 'thanks', "that's all", 'go ahead',
+            'send the order', "that'll be all", 'thats all',
+            "that's it", 'thats it'
+        ]
+
+        # Mandarin closing remarks
+        mandarin_closings = [
+            '谢谢', '好的', '可以了', '就这些', '下单吧',
+            '没了', '够了', '行了'
+        ]
+
+        # Cantonese closing remarks
+        cantonese_closings = [
+            '唔該', '多謝', '得啦', '可以啦', '落單啦',
+            '夠啦', '冇啦'
+        ]
+
+        # Check if message contains any closing remark
+        for closing in english_closings + mandarin_closings + cantonese_closings:
+            if closing in message_lower:
+                return True
+
+        return False
 
     def get_system_prompt(self):
         """Generate role-specific system prompt"""
@@ -297,12 +345,14 @@ def handle_create_session(data):
     role = data.get('role', 'customer')
 
     session = ConversationSession(table_id, role)
+    session.state = SessionState.IDLE  # Start in IDLE state
     sessions[session.session_id] = session
 
     emit('session_created', {
         'session_id': session.session_id,
         'table_name': session.table_name,
-        'role': role
+        'role': role,
+        'state': session.state
     })
 
 
@@ -436,7 +486,9 @@ def handle_chat(data):
                         'id': item.get('id', '')
                     })
 
-        order_extraction_prompt = f"""
+        # State-aware order extraction prompt
+        if session.state == SessionState.ORDERING:
+            order_extraction_prompt = f"""
 IMPORTANT: When customer orders items, extract them and format as JSON.
 
 Available menu items:
@@ -475,6 +527,45 @@ ORDER_UPDATE: {{"action": "remove", "items": [{{"name": "Spring Rolls", "quantit
 ONLY include ORDER_UPDATE when customer is actually ordering/modifying/removing items.
 DO NOT include ORDER_UPDATE for questions, recommendations, or general conversation.
 """
+        elif session.state == SessionState.CONFIRMED:
+            # Build confirmed order summary
+            confirmed_summary = "No confirmed items"
+            if session.confirmed_items:
+                confirmed_items_list = []
+                for item in session.confirmed_items:
+                    confirmed_items_list.append(f"- {item['name']} x{item['quantity']} (${item['price']})")
+                confirmed_summary = '\n'.join(confirmed_items_list)
+
+            order_extraction_prompt = f"""
+IMPORTANT: The order has been CONFIRMED. Customer can ONLY add MORE items.
+
+Confirmed Order (LOCKED - cannot be modified or removed):
+{confirmed_summary}
+
+Available menu items:
+{chr(10).join([f"- {item['en']} / {item['zh']} / {item['yue']}: ${item['price']}" for item in menu_items_list[:15]])}
+
+Customer can:
+- Add MORE items (new orders)
+- Ask questions
+- Request service
+
+Customer CANNOT modify or remove confirmed items.
+
+If customer tries to modify/remove confirmed items, politely explain:
+- English: "Your order has been confirmed. I can add more items, but cannot modify the confirmed order. Would you like to add something else?"
+- Mandarin: "您的订单已确认。我可以添加更多菜品，但无法修改已确认的订单。您想添加其他菜品吗？"
+- Cantonese: "你嘅訂單已經確認咗。我可以加多啲嘢，但係唔可以改已經確認嘅訂單。你想加其他嘢嗎？"
+
+When customer orders NEW items, add this at the END of your response:
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "Item Name", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+ONLY use action "add". DO NOT use "modify" or "remove" actions.
+"""
+        else:
+            # Default prompt for other states
+            order_extraction_prompt = ""
 
         messages = [
             {'role': 'system', 'content': system_prompt + '\n\n' + order_extraction_prompt}
@@ -526,55 +617,70 @@ DO NOT include ORDER_UPDATE for questions, recommendations, or general conversat
                 print(f"[Order] Extracted JSON: {order_json}")
                 order_update = json.loads(order_json)
 
-                # Process order update
-                if order_update['action'] == 'add':
-                    for item in order_update['items']:
-                        session.current_order.append(item)
-                        print(f"[Order] Added: {item['name']} x{item['quantity']} - ${item['price']}")
-
-                elif order_update['action'] == 'remove':
-                    for item in order_update['items']:
-                        # Remove matching items (match by name in any language)
-                        item_name = item['name'].lower()
-                        session.current_order = [
-                            o for o in session.current_order
-                            if o['name'].lower() != item_name
-                        ]
-                        print(f"[Order] Removed: {item['name']}")
-
-                elif order_update['action'] == 'modify':
-                    for item in order_update['items']:
-                        # Find and update item quantity
-                        item_name = item['name'].lower()
-                        found = False
-                        for o in session.current_order:
-                            if o['name'].lower() == item_name:
-                                o['quantity'] = item['quantity']
-                                found = True
-                                print(f"[Order] Modified: {item['name']} -> x{item['quantity']}")
-                                break
-
-                        # If not found, treat as add
-                        if not found:
+                # Process order update based on session state
+                if session.state == SessionState.CONFIRMED:
+                    # In CONFIRMED state, only allow "add" actions
+                    if order_update['action'] in ['modify', 'remove']:
+                        print(f"[Order] Rejected {order_update['action']} in CONFIRMED state")
+                        # Don't process the order update, LLM should have refused
+                        # But if it slipped through, ignore it
+                    elif order_update['action'] == 'add':
+                        for item in order_update['items']:
                             session.current_order.append(item)
-                            print(f"[Order] Added (via modify): {item['name']} x{item['quantity']}")
+                            print(f"[Order] Added (CONFIRMED state): {item['name']} x{item['quantity']} - ${item['price']}")
 
-                # Calculate order totals
-                subtotal = sum(item['price'] * item['quantity'] for item in session.current_order)
+                elif session.state == SessionState.ORDERING:
+                    # In ORDERING state, allow all actions
+                    if order_update['action'] == 'add':
+                        for item in order_update['items']:
+                            session.current_order.append(item)
+                            print(f"[Order] Added: {item['name']} x{item['quantity']} - ${item['price']}")
+
+                    elif order_update['action'] == 'remove':
+                        for item in order_update['items']:
+                            # Remove matching items (match by name in any language)
+                            item_name = item['name'].lower()
+                            session.current_order = [
+                                o for o in session.current_order
+                                if o['name'].lower() != item_name
+                            ]
+                            print(f"[Order] Removed: {item['name']}")
+
+                    elif order_update['action'] == 'modify':
+                        for item in order_update['items']:
+                            # Find and update item quantity
+                            item_name = item['name'].lower()
+                            found = False
+                            for o in session.current_order:
+                                if o['name'].lower() == item_name:
+                                    o['quantity'] = item['quantity']
+                                    found = True
+                                    print(f"[Order] Modified: {item['name']} -> x{item['quantity']}")
+                                    break
+
+                            # If not found, treat as add
+                            if not found:
+                                session.current_order.append(item)
+                                print(f"[Order] Added (via modify): {item['name']} x{item['quantity']}")
+
+                # Calculate order totals (include both confirmed and current items)
+                all_items = session.confirmed_items + session.current_order
+                subtotal = sum(item['price'] * item['quantity'] for item in all_items)
                 tax = subtotal * 0.09
                 total = subtotal + tax
 
                 # Send order update to client
                 emit('order_updated', {
                     'session_id': session_id,
-                    'order': session.current_order,
+                    'confirmed_items': session.confirmed_items,
+                    'current_order': session.current_order,
                     'action': order_update['action'],
                     'subtotal': round(subtotal, 2),
                     'tax': round(tax, 2),
                     'total': round(total, 2)
                 })
 
-                print(f"[Order] Current order: {len(session.current_order)} items, Total: ${total:.2f}")
+                print(f"[Order] Total items: {len(all_items)}, Total: ${total:.2f}")
 
             except Exception as e:
                 print(f"[Order] Failed to parse order update: {e}")
@@ -597,6 +703,60 @@ DO NOT include ORDER_UPDATE for questions, recommendations, or general conversat
                 clean_response = "Got it!"  # English
 
             print(f"[Order] Empty response, using default: {clean_response}")
+
+        # Check for closing remark and handle state transition
+        if session._is_closing_remark(message):
+            if session.state == SessionState.ORDERING:
+                # First confirmation - lock order
+                session.confirmed_items.extend(session.current_order)
+                session.current_order = []
+                session.state = SessionState.CONFIRMED
+                session.order_confirmed_at = datetime.now()
+
+                print(f"[Session] State transition: ORDERING → CONFIRMED")
+                print(f"[Session] Locked {len(session.confirmed_items)} items")
+
+                # Calculate totals
+                subtotal = sum(item['price'] * item['quantity'] for item in session.confirmed_items)
+                tax = subtotal * 0.09
+                total = subtotal + tax
+
+                # Notify client of state change
+                emit('state_changed', {
+                    'session_id': session_id,
+                    'state': 'confirmed',
+                    'confirmed_items': session.confirmed_items,
+                    'current_order': [],
+                    'button_text': 'Tap for Anything',
+                    'subtotal': round(subtotal, 2),
+                    'tax': round(tax, 2),
+                    'total': round(total, 2)
+                })
+
+            elif session.state == SessionState.CONFIRMED:
+                # Additional confirmation - lock new items
+                if session.current_order:
+                    session.confirmed_items.extend(session.current_order)
+                    session.current_order = []
+
+                    print(f"[Session] Additional confirmation in CONFIRMED state")
+                    print(f"[Session] Total locked items: {len(session.confirmed_items)}")
+
+                    # Calculate totals
+                    subtotal = sum(item['price'] * item['quantity'] for item in session.confirmed_items)
+                    tax = subtotal * 0.09
+                    total = subtotal + tax
+
+                    # Notify client of order update
+                    emit('order_updated', {
+                        'session_id': session_id,
+                        'confirmed_items': session.confirmed_items,
+                        'current_order': [],
+                        'action': 'confirm',
+                        'subtotal': round(subtotal, 2),
+                        'tax': round(tax, 2),
+                        'total': round(total, 2)
+                    })
 
         # Add AI response to history
         session.add_message('assistant', clean_response)
@@ -681,6 +841,55 @@ def get_session(session_id):
     })
 
 
+@socketio.on('reset_session')
+def handle_reset_session(data):
+    """Manual session reset (staff action or payment complete)"""
+    session_id = data.get('session_id')
+
+    if not session_id or session_id not in sessions:
+        emit('error', {'message': 'Invalid session'})
+        return
+
+    try:
+        # Clear session
+        session = sessions[session_id]
+        print(f"[Session] Manual reset for {session.table_name}")
+
+        del sessions[session_id]
+
+        emit('session_reset', {
+            'session_id': session_id,
+            'message': 'Session reset successfully'
+        })
+
+        print(f"[Session] Reset complete, ready for next customer")
+
+    except Exception as e:
+        print(f"[Session] Reset error: {e}")
+        emit('error', {'message': f'Reset error: {str(e)}'})
+
+
+@socketio.on('start_ordering')
+def handle_start_ordering(data):
+    """Transition from ENROLLING to ORDERING state"""
+    session_id = data.get('session_id')
+
+    if not session_id or session_id not in sessions:
+        emit('error', {'message': 'Invalid session'})
+        return
+
+    session = sessions[session_id]
+
+    if session.state == SessionState.ENROLLING:
+        session.state = SessionState.ORDERING
+        print(f"[Session] State transition: ENROLLING → ORDERING")
+
+        emit('state_changed', {
+            'session_id': session_id,
+            'state': 'ordering'
+        })
+
+
 if __name__ == '__main__':
     # Create directories
     os.makedirs('data', exist_ok=True)
@@ -689,9 +898,3 @@ if __name__ == '__main__':
 
     print("="*60)
     print("CamareraI - Streaming Voice Agent POC")
-    print("="*60)
-    print(f"Restaurant: {menu_data.get('restaurant', {}).get('name', 'Not loaded')}")
-    print(f"Menu items: {sum(len(items) for items in menu_data.get('menu', {}).values())}")
-    print("="*60)
-
-    socketio.run(app, debug=False, host='0.0.0.0', port=5002, allow_unsafe_werkzeug=True)
