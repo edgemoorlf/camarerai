@@ -229,6 +229,12 @@ class VoiceAgent {
         const sendOrderBtn = document.getElementById('send-order-btn');
         sendOrderBtn.addEventListener('click', () => this.sendOrder());
 
+        // Reset session button (for staff/testing)
+        const resetSessionBtn = document.getElementById('reset-session-btn');
+        if (resetSessionBtn) {
+            resetSessionBtn.addEventListener('click', () => this.resetSession());
+        }
+
         // Monitor for barge-in during speech
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && this.isSpeaking) {
@@ -668,6 +674,15 @@ class VoiceAgent {
     async sendOrder() {
         console.log('Sending order:', this.currentOrder);
         alert('Order sent to kitchen! (Demo only)');
+    }
+
+    resetSession() {
+        console.log('[Session] Manual reset requested');
+        if (confirm('Reset session? This will clear the order and start over.')) {
+            this.socket.emit('reset_session', {
+                session_id: this.sessionId
+            });
+        }
     }
 
     escapeHtml(text) {

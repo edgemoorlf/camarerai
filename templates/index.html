@@ -37,13 +37,25 @@
         </div>
 
         <!-- Order Summary Panel -->
-        <div class="order-panel">
+        <div id="order-panel" class="order-panel hidden">
             <div class="order-header">
                 <h2>Your Order</h2>
                 <div id="item-count" class="item-count">0 items</div>
             </div>
 
             <div id="order-items" class="order-items">
+                <!-- Confirmed items section (locked) -->
+                <div id="confirmed-section" class="order-section confirmed hidden">
+                    <h3>Confirmed Order <span class="lock-icon">🔒</span></h3>
+                    <div id="confirmed-items" class="order-items-list"></div>
+                </div>
+
+                <!-- New items section (being added) -->
+                <div id="new-section" class="order-section new hidden">
+                    <h3>Additional Items</h3>
+                    <div id="new-items" class="order-items-list"></div>
+                </div>
+
                 <p class="empty-state">No items yet</p>
             </div>
 
@@ -99,6 +111,9 @@
 
     <!-- Debug toggle button (bottom right) -->
     <button id="show-debug" class="show-debug-btn">🐛</button>
+
+    <!-- Manual reset button (bottom left, for staff/testing) -->
+    <button id="reset-session-btn" class="reset-session-btn hidden">Reset Session (Staff)</button>
 
     <script src="/static/app.js"></script>
 </body>

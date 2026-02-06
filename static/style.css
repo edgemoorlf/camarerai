@@ -526,3 +526,109 @@ body {
 .debug-content::-webkit-scrollbar-thumb:hover {
     background: #86868b;
 }
+
+/* Session Management Styles */
+
+/* Order sections for confirmed vs new items */
+.order-section {
+    margin-bottom: 20px;
+}
+
+.order-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #86868b;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.order-section.confirmed {
+    padding-bottom: 20px;
+    border-bottom: 2px solid #e5e5e7;
+}
+
+.order-section.new {
+    margin-top: 20px;
+}
+
+.lock-icon {
+    font-size: 12px;
+    margin-left: 6px;
+    opacity: 0.7;
+}
+
+/* Locked items styling */
+.order-item.locked {
+    opacity: 0.6;
+    background: #f5f5f7;
+    border-left: 3px solid #86868b;
+    padding-left: 12px;
+}
+
+.order-item.locked .item-name {
+    color: #86868b;
+}
+
+.order-item.locked .item-price {
+    color: #86868b;
+}
+
+/* Order items list */
+.order-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Reset session button (for staff/testing) */
+.reset-session-btn {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    padding: 12px 24px;
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+    transition: all 0.2s ease;
+}
+
+.reset-session-btn:hover {
+    background: #c82333;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(220, 53, 69, 0.4);
+}
+
+.reset-session-btn.hidden {
+    display: none;
+}
+
+/* Button state variations */
+.start-order-btn.confirmed {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+}
+
+.start-order-btn.confirmed:hover {
+    transform: scale(1.05);
+    box-shadow: 0 12px 40px rgba(102, 126, 234, 0.4);
+}
+
+/* Empty state when no items */
+.order-items .empty-state {
+    text-align: center;
+    color: #86868b;
+    font-size: 16px;
+    padding: 40px 20px;
+}
+
+/* Hide empty state when sections are visible */
+.order-section:not(.hidden) ~ .empty-state {
+    display: none;
+}
