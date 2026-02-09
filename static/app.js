@@ -296,6 +296,8 @@ class VoiceAgent {
             offset += buf.length;
         }
 
+        console.log(`[Enrollment] Collected ${enrollmentAudio.length} samples (${(enrollmentAudio.length / 16000).toFixed(2)}s)`);
+
         // Enroll speaker (client-side)
         this.updateEnrollmentStatus('Processing...');
         const result = this.speakerVerifier.enroll(enrollmentAudio);
@@ -304,16 +306,19 @@ class VoiceAgent {
 
         if (result.success) {
             console.log('[Enrollment] ✓ Success - speaker enrolled');
+            console.log('[Enrollment] isEnrolled:', this.speakerVerifier.isEnrolled());
             this.onEnrollmentComplete();
         } else {
             console.error('[Enrollment] ✗ Failed:', result.message);
-            // Continue anyway
+            console.error('[Enrollment] Barge-in will be DISABLED (no enrollment)');
+            // Continue anyway, but barge-in will be disabled
             this.onEnrollmentComplete();
         }
     }
 
     onEnrollmentComplete() {
         console.log('[Enrollment] Complete, starting normal ordering...');
+        console.log('[Enrollment] Final enrollment status:', this.speakerVerifier.isEnrolled());
 
         // Hide enrollment area
         const enrollmentArea = document.getElementById('enrollment-area');
@@ -381,7 +386,7 @@ class VoiceAgent {
                     audio: base64Audio
                 });
 
-                // Check for barge-in during speaking
+                // Check for barge-in during speaking (only if enrolled)
                 if (this.isSpeaking && this.speakerVerifier.isEnrolled()) {
                     const volume = this.calculateVolume(inputData);
                     if (volume > 0.02) { // Voice detected threshold
@@ -395,13 +400,8 @@ class VoiceAgent {
                             console.log(`[Barge-in] ✗ Rejected (similarity: ${result.similarity.toFixed(3)}) - not customer`);
                         }
                     }
-                } else if (this.isSpeaking && !this.speakerVerifier.isEnrolled()) {
-                    // No enrollment - use old behavior (any voice triggers barge-in)
-                    const volume = this.calculateVolume(inputData);
-                    if (volume > 0.02) {
-                        this.handleBargeIn();
-                    }
                 }
+                // Note: If not enrolled, barge-in is disabled for safety
             };
 
             source.connect(processor);
