@@ -13,8 +13,12 @@ import uuid
 import base64
 from dotenv import load_dotenv
 from dashscope.audio.asr import Recognition
+import dashscope
 
 load_dotenv()
+
+# Set DashScope API key globally (required for Recognition class)
+dashscope.api_key = os.getenv('DASHSCOPE_API_KEY')
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
@@ -422,7 +426,41 @@ def handle_audio_data(data):
         audio_bytes = base64.b64decode(audio_base64)
 
         # Send to recognition
-        recognition.send_audio_frame(audio_bytes)
+        try:
+            recognition.send_audio_frame(audio_bytes)
+        except Exception as send_error:
+            # If recognition has stopped, restart it
+            if "stopped" in str(send_error).lower():
+                print(f"[ASR] Recognition stopped, restarting for session {rec_data['session_id']}")
+
+                # Create new recognition instance
+                callback = StreamingRecognitionCallback(rec_data['session_id'], socketio, request.sid)
+                new_recognition = Recognition(
+                    model='paraformer-realtime-v2',
+                    format='pcm',
+                    sample_rate=16000,
+                    callback=callback,
+                    semantic_punctuation_enabled=True,
+                    max_sentence_silence=5000,
+                    disfluency_removal_enabled=False
+                )
+
+                # Start new recognition
+                new_recognition.start()
+
+                # Update stored recognition
+                active_recognitions[request.sid] = {
+                    'recognition': new_recognition,
+                    'started': True,
+                    'session_id': rec_data['session_id'],
+                    'callback': callback
+                }
+
+                # Send audio to new recognition
+                new_recognition.send_audio_frame(audio_bytes)
+                print(f"[ASR] Recognition restarted successfully")
+            else:
+                raise send_error
 
     except Exception as e:
         print(f"[ASR] Audio data error: {e}")
