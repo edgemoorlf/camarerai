@@ -24,12 +24,13 @@ body {
     width: 100%;
     max-width: 1200px;
     height: 90vh;
-    display: grid;
-    grid-template-columns: 2fr 1fr;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     gap: 24px;
 }
 
-/* Main Content Area */
+/* Main Content Area - Only for start button and enrollment */
 .main-content {
     background: white;
     border-radius: 24px;
@@ -38,11 +39,30 @@ body {
     align-items: center;
     justify-content: center;
     padding: 60px;
+    width: 100%;
+    max-width: 600px;
 }
 
-/* Status Area */
+/* Hide main content when order panel is visible */
+.main-content.with-order {
+    display: none;
+}
+
+/* Status Area - Floating bar at bottom */
 .status-area {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
     text-align: center;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    padding: 20px 48px;
+    border-radius: 50px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    z-index: 100;
+    transition: all 0.3s ease;
 }
 
 .status-area.hidden {
@@ -137,10 +157,13 @@ body {
 }
 
 .status-icon {
-    font-size: 80px;
-    margin-bottom: 24px;
+    font-size: 28px;
+    margin-bottom: 0;
+    margin-right: 12px;
     color: #1d1d1f;
     animation: breathe 3s ease-in-out infinite;
+    display: inline-block;
+    vertical-align: middle;
 }
 
 .status-icon.listening {
@@ -158,13 +181,15 @@ body {
 }
 
 .status-text {
-    font-size: 24px;
-    font-weight: 500;
-    color: #86868b;
-    letter-spacing: -0.5px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #1d1d1f;
+    letter-spacing: -0.3px;
+    display: inline-block;
+    vertical-align: middle;
 }
 
-/* Order Panel */
+/* Order Panel - Full width when visible */
 .order-panel {
     background: white;
     border-radius: 24px;
@@ -172,6 +197,9 @@ body {
     display: flex;
     flex-direction: column;
     padding: 32px;
+    width: 100%;
+    max-width: 800px;
+    height: 90vh;
 }
 
 .order-header {
@@ -458,18 +486,24 @@ body {
 /* Responsive Design */
 @media (max-width: 1024px) {
     .container {
-        grid-template-columns: 1fr;
-        grid-template-rows: 1fr auto;
+        flex-direction: column;
         height: auto;
         min-height: 90vh;
     }
 
     .main-content {
         min-height: 400px;
+        max-width: 100%;
     }
 
     .order-panel {
         max-height: 500px;
+        max-width: 100%;
+    }
+
+    .status-area {
+        bottom: 20px;
+        padding: 16px 32px;
     }
 }
 
@@ -487,12 +521,18 @@ body {
         min-height: 300px;
     }
 
+    .status-area {
+        bottom: 12px;
+        padding: 14px 28px;
+    }
+
     .status-icon {
-        font-size: 60px;
+        font-size: 24px;
+        margin-right: 8px;
     }
 
     .status-text {
-        font-size: 20px;
+        font-size: 16px;
     }
 
     .order-panel {
@@ -563,20 +603,19 @@ body {
     opacity: 0.7;
 }
 
-/* Locked items styling */
+/* Locked items styling - keep prominent, just add subtle indicator */
 .order-item.locked {
-    opacity: 0.6;
-    background: #f5f5f7;
-    border-left: 3px solid #86868b;
+    background: #f9f9fb;
+    border-left: 3px solid #06c;
     padding-left: 12px;
 }
 
 .order-item.locked .item-name {
-    color: #86868b;
+    color: #1d1d1f;
 }
 
 .order-item.locked .item-price {
-    color: #86868b;
+    color: #1d1d1f;
 }
 
 /* Order items list */

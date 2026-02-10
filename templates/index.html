@@ -28,12 +28,6 @@
                 <div class="enrollment-phrase">"Hello, I'd like to order"</div>
                 <div id="enrollment-status" class="enrollment-status">Listening...</div>
             </div>
-
-            <!-- Status Indicator (hidden initially) -->
-            <div id="status-area" class="status-area hidden">
-                <div id="status-icon" class="status-icon">◉</div>
-                <div id="status-text" class="status-text">Listening</div>
-            </div>
         </div>
 
         <!-- Order Summary Panel -->
@@ -78,6 +72,12 @@
                 Send to Kitchen
             </button>
         </div>
+    </div>
+
+    <!-- Floating Status Indicator (outside container, always accessible) -->
+    <div id="status-area" class="status-area hidden">
+        <div id="status-icon" class="status-icon">◉</div>
+        <div id="status-text" class="status-text">Listening</div>
     </div>
 
     <!-- Hidden audio player for TTS -->

@@ -404,6 +404,10 @@ class VoiceAgent {
         const orderPanel = document.getElementById('order-panel');
         orderPanel.classList.remove('hidden');
 
+        // Hide main content area
+        const mainContent = document.querySelector('.main-content');
+        mainContent.classList.add('with-order');
+
         // Update status
         this.updateStatus('listening', '◉', 'Listening');
 
@@ -766,6 +770,10 @@ class VoiceAgent {
         // Hide order panel
         const orderPanel = document.getElementById('order-panel');
         orderPanel.classList.add('hidden');
+
+        // Show main content area
+        const mainContent = document.querySelector('.main-content');
+        mainContent.classList.remove('with-order');
 
         // Show start button
         const startButtonArea = document.getElementById('start-button-area');
