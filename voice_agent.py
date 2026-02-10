@@ -349,7 +349,7 @@ def handle_create_session(data):
     role = data.get('role', 'customer')
 
     session = ConversationSession(table_id, role)
-    session.state = SessionState.IDLE  # Start in IDLE state
+    session.state = SessionState.ORDERING  # Start in ORDERING state to capture orders immediately
     sessions[session.session_id] = session
 
     emit('session_created', {
@@ -936,3 +936,10 @@ if __name__ == '__main__':
 
     print("="*60)
     print("CamareraI - Streaming Voice Agent POC")
+    print("="*60)
+    print(f"Server starting on http://0.0.0.0:5002")
+    print("Press Ctrl+C to stop")
+    print("="*60)
+
+    # Start the server
+    socketio.run(app, host='0.0.0.0', port=5002, debug=True, allow_unsafe_werkzeug=True)

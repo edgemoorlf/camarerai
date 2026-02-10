@@ -86,6 +86,15 @@ class VoiceAgent {
                     this.currentOrder = [];
                     this.updateButton('confirmed');
                     this.updateOrderDisplay(data.subtotal, data.tax, data.total);
+
+                    // Hide status area and show start button
+                    const statusArea = document.getElementById('status-area');
+                    statusArea.classList.add('hidden');
+
+                    const startButtonArea = document.getElementById('start-button-area');
+                    startButtonArea.classList.remove('hidden');
+
+                    console.log('[Session] UI reset to "Tap for Anything" state');
                 } else if (data.state === 'ordering') {
                     this.updateButton('ordering');
                 }
@@ -122,12 +131,6 @@ class VoiceAgent {
                 if (finalText && finalText.trim()) {
                     // Update debug
                     document.getElementById('debug-transcript').textContent = finalText;
-
-                    // Check for closing remarks
-                    if (this.isClosingRemark(finalText)) {
-                        console.log('Closing remark detected - will reset after AI response');
-                        this.shouldResetAfterResponse = true;
-                    }
 
                     // Auto-send to LLM
                     this.updateStatus('thinking', '⋯', 'Thinking');
@@ -545,36 +548,19 @@ class VoiceAgent {
 
         this.audioPlayer.onended = () => {
             this.isSpeaking = false;
-
-            // Check if we should reset to "Touch to Order"
-            if (this.shouldResetAfterResponse) {
-                console.log('Closing remark detected - resetting to "Touch to Order"');
-                this.resetToStartScreen();
-            } else {
-                this.updateStatus('listening', '◉', 'Listening');
-            }
+            this.updateStatus('listening', '◉', 'Listening');
         };
 
         this.audioPlayer.onerror = () => {
             console.warn('Audio playback failed');
             this.isSpeaking = false;
-
-            if (this.shouldResetAfterResponse) {
-                this.resetToStartScreen();
-            } else {
-                this.updateStatus('listening', '◉', 'Listening');
-            }
+            this.updateStatus('listening', '◉', 'Listening');
         };
 
         this.audioPlayer.play().catch(err => {
             console.warn('Audio play error:', err);
             this.isSpeaking = false;
-
-            if (this.shouldResetAfterResponse) {
-                this.resetToStartScreen();
-            } else {
-                this.updateStatus('listening', '◉', 'Listening');
-            }
+            this.updateStatus('listening', '◉', 'Listening');
         });
     }
 
@@ -654,14 +640,17 @@ class VoiceAgent {
             newSection.classList.add('hidden');
         }
 
-        // If no items at all, show empty state
+        // Show/hide empty state message
+        const emptyState = orderItems.querySelector('.empty-state');
         if (allItems.length === 0) {
-            orderItems.innerHTML = '<p class="empty-state">No items yet</p>';
-            if (confirmedSection) confirmedSection.classList.add('hidden');
-            if (newSection) newSection.classList.add('hidden');
+            if (emptyState) {
+                emptyState.classList.remove('hidden');
+            }
             sendOrderBtn.disabled = true;
         } else {
-            orderItems.innerHTML = ''; // Clear empty state
+            if (emptyState) {
+                emptyState.classList.add('hidden');
+            }
             sendOrderBtn.disabled = false;
         }
     }
