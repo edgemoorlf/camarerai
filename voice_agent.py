@@ -60,6 +60,8 @@ class SessionState:
     ENROLLING = 'enrolling'
     ORDERING = 'ordering'
     CONFIRMED = 'confirmed'
+    CONFIRMED_PASSIVE = 'confirmed_passive'  # Passive listening (no AI response)
+    CONFIRMED_STOPPED = 'confirmed_stopped'  # Listening stopped
 
 
 class ConversationSession:
@@ -81,6 +83,9 @@ class ConversationSession:
         self.current_order = []        # Items being added (editable in ORDERING state)
         self.confirmed_items = []      # Items locked after confirmation
         self.order_confirmed_at = None
+
+        # Passive listening
+        self.passive_transcripts = []  # Transcripts captured in passive mode
 
         self.conversation_history = []
         self.created_at = datetime.now()
@@ -148,6 +153,32 @@ class ConversationSession:
                     order_items.append(f"- {item['name']} x{item['quantity']} (${item['price']})")
                 order_summary = '\n'.join(order_items)
 
+            # Build passive context if available
+            passive_context = ""
+            if self.passive_transcripts:
+                passive_context = f"""
+
+Context from customer conversation (captured while dining):
+{chr(10).join(f"- {t}" for t in self.passive_transcripts[-5:])}
+
+Use this context to better understand customer preferences and needs.
+"""
+
+            # State-specific guidelines
+            state_guidelines = ""
+            if self.state == SessionState.CONFIRMED:
+                state_guidelines = """
+
+ORDER STATUS: The order has been CONFIRMED and locked.
+- Customer CAN add MORE items (new orders)
+- Customer CAN ask questions
+- Customer CAN request service
+- Customer CANNOT modify or remove confirmed items
+
+If customer tries to modify/remove confirmed items, politely explain:
+"Your order has been confirmed and sent to the kitchen. I can add more items, but cannot modify the confirmed order. Would you like to add something else?"
+"""
+
             return f"""You are {self.table_name.split(' - ')[1]}, a friendly AI assistant at {restaurant_name}.
 Help customers order food naturally.
 
@@ -161,7 +192,7 @@ Current context:
 - Party size: {self.party_size or 'unknown'}
 - Dietary restrictions: {', '.join(self.dietary_restrictions) or 'none'}
 - Current order ({len(self.current_order)} items):
-{order_summary}
+{order_summary}{passive_context}{state_guidelines}
 
 Menu highlights:
 {self._get_menu_summary()}
@@ -282,7 +313,27 @@ class StreamingRecognitionCallback:
 
                         print(f"[ASR] Sentence complete: {full_text}")
 
-                        # Send transcription_complete to trigger chat
+                        # Check if session is in passive mode
+                        if self.session_id in sessions:
+                            session = sessions[self.session_id]
+
+                            if session.state == SessionState.CONFIRMED_PASSIVE:
+                                # Passive mode - capture but don't respond
+                                print(f"[Passive] Captured: {full_text}")
+                                session.passive_transcripts.append(full_text)
+                                session.add_message('user', full_text, speaker_id=None)
+
+                                # Send transcription but mark as passive
+                                self.socketio.emit('transcription_passive', {
+                                    'session_id': self.session_id,
+                                    'text': full_text
+                                }, room=self.client_sid)
+
+                                # Clear completed sentences for next utterance
+                                self.completed_sentences = []
+                                return
+
+                        # Normal mode - send transcription_complete to trigger chat
                         self.socketio.emit('transcription_complete', {
                             'session_id': self.session_id,
                             'text': full_text
@@ -745,13 +796,13 @@ ONLY use action "add". DO NOT use "modify" or "remove" actions.
         # Check for closing remark and handle state transition
         if session._is_closing_remark(message):
             if session.state == SessionState.ORDERING:
-                # First confirmation - lock order
+                # First confirmation - lock order and enter passive mode
                 session.confirmed_items.extend(session.current_order)
                 session.current_order = []
-                session.state = SessionState.CONFIRMED
+                session.state = SessionState.CONFIRMED_PASSIVE
                 session.order_confirmed_at = datetime.now()
 
-                print(f"[Session] State transition: ORDERING → CONFIRMED")
+                print(f"[Session] State transition: ORDERING → CONFIRMED_PASSIVE")
                 print(f"[Session] Locked {len(session.confirmed_items)} items")
 
                 # Calculate totals
@@ -762,22 +813,24 @@ ONLY use action "add". DO NOT use "modify" or "remove" actions.
                 # Notify client of state change
                 emit('state_changed', {
                     'session_id': session_id,
-                    'state': 'confirmed',
+                    'state': 'confirmed_passive',
                     'confirmed_items': session.confirmed_items,
                     'current_order': [],
                     'button_text': 'Tap for Anything',
+                    'show_stop_button': True,
                     'subtotal': round(subtotal, 2),
                     'tax': round(tax, 2),
                     'total': round(total, 2)
                 })
 
             elif session.state == SessionState.CONFIRMED:
-                # Additional confirmation - lock new items
+                # Additional confirmation - lock new items and return to passive
                 if session.current_order:
                     session.confirmed_items.extend(session.current_order)
                     session.current_order = []
+                    session.state = SessionState.CONFIRMED_PASSIVE
 
-                    print(f"[Session] Additional confirmation in CONFIRMED state")
+                    print(f"[Session] Additional confirmation: CONFIRMED → CONFIRMED_PASSIVE")
                     print(f"[Session] Total locked items: {len(session.confirmed_items)}")
 
                     # Calculate totals
@@ -794,6 +847,13 @@ ONLY use action "add". DO NOT use "modify" or "remove" actions.
                         'subtotal': round(subtotal, 2),
                         'tax': round(tax, 2),
                         'total': round(total, 2)
+                    })
+
+                    # Notify state change to passive
+                    emit('state_changed', {
+                        'session_id': session_id,
+                        'state': 'confirmed_passive',
+                        'show_stop_button': True
                     })
 
         # Add AI response to history
@@ -905,6 +965,63 @@ def handle_reset_session(data):
     except Exception as e:
         print(f"[Session] Reset error: {e}")
         emit('error', {'message': f'Reset error: {str(e)}'})
+
+
+@socketio.on('stop_listening')
+def handle_stop_listening(data):
+    """Stop passive listening mode"""
+    session_id = data.get('session_id')
+
+    if not session_id or session_id not in sessions:
+        emit('error', {'message': 'Invalid session'})
+        return
+
+    try:
+        session = sessions[session_id]
+
+        if session.state == SessionState.CONFIRMED_PASSIVE:
+            session.state = SessionState.CONFIRMED_STOPPED
+
+            emit('state_changed', {
+                'session_id': session_id,
+                'state': 'confirmed_stopped',
+                'show_stop_button': False
+            })
+
+            print(f"[Session] Passive listening stopped for {session.table_name}")
+
+    except Exception as e:
+        print(f"[Session] Stop listening error: {e}")
+        emit('error', {'message': f'Stop listening error: {str(e)}'})
+
+
+@socketio.on('resume_conversation')
+def handle_resume_conversation(data):
+    """Resume active conversation from passive/stopped state"""
+    session_id = data.get('session_id')
+
+    if not session_id or session_id not in sessions:
+        emit('error', {'message': 'Invalid session'})
+        return
+
+    try:
+        session = sessions[session_id]
+
+        if session.state in [SessionState.CONFIRMED_PASSIVE, SessionState.CONFIRMED_STOPPED]:
+            session.state = SessionState.CONFIRMED
+
+            emit('state_changed', {
+                'session_id': session_id,
+                'state': 'confirmed',
+                'show_stop_button': False
+            })
+
+            print(f"[Session] Resumed active conversation for {session.table_name}")
+            print(f"[Session] Passive context: {len(session.passive_transcripts)} transcripts")
+
+    except Exception as e:
+        print(f"[Session] Resume conversation error: {e}")
+        emit('error', {'message': f'Resume conversation error: {str(e)}'})
 
 
 @socketio.on('start_ordering')

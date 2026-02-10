@@ -80,21 +80,70 @@ class VoiceAgent {
                 console.log('[Session] State changed:', data.state);
                 this.sessionState = data.state;
 
-                if (data.state === 'confirmed') {
-                    // Order confirmed - update UI
+                if (data.state === 'confirmed_passive') {
+                    // Passive listening mode - capture but don't respond
+                    console.log('[Session] Entered passive listening mode');
+
                     this.confirmedItems = data.confirmed_items || [];
                     this.currentOrder = [];
                     this.updateButton('confirmed');
                     this.updateOrderDisplay(data.subtotal, data.tax, data.total);
 
-                    // Hide status area and show start button
+                    // Show status area (passive mode)
                     const statusArea = document.getElementById('status-area');
-                    statusArea.classList.add('hidden');
+                    statusArea.classList.remove('hidden');
+                    this.updateStatus('listening', '◉', 'Listening');
 
+                    // Show start button
                     const startButtonArea = document.getElementById('start-button-area');
                     startButtonArea.classList.remove('hidden');
 
-                    console.log('[Session] UI reset to "Tap for Anything" state');
+                    // Show stop listening button
+                    const stopButton = document.getElementById('stop-listening-btn');
+                    stopButton.classList.remove('hidden');
+
+                    console.log('[Session] Passive mode: capturing speech without responding');
+
+                } else if (data.state === 'confirmed_stopped') {
+                    // Listening stopped
+                    console.log('[Session] Passive listening stopped');
+
+                    // Hide status area
+                    const statusArea = document.getElementById('status-area');
+                    statusArea.classList.add('hidden');
+
+                    // Hide stop button
+                    const stopButton = document.getElementById('stop-listening-btn');
+                    stopButton.classList.add('hidden');
+
+                    // Show start button
+                    const startButtonArea = document.getElementById('start-button-area');
+                    startButtonArea.classList.remove('hidden');
+
+                } else if (data.state === 'confirmed') {
+                    // Active conversation mode
+                    console.log('[Session] Active conversation mode');
+
+                    this.confirmedItems = data.confirmed_items || [];
+                    this.currentOrder = [];
+                    this.updateButton('confirmed');
+
+                    if (data.subtotal !== undefined) {
+                        this.updateOrderDisplay(data.subtotal, data.tax, data.total);
+                    }
+
+                    // Hide start button and stop button
+                    const startButtonArea = document.getElementById('start-button-area');
+                    startButtonArea.classList.add('hidden');
+
+                    const stopButton = document.getElementById('stop-listening-btn');
+                    stopButton.classList.add('hidden');
+
+                    // Show status area
+                    const statusArea = document.getElementById('status-area');
+                    statusArea.classList.remove('hidden');
+                    this.updateStatus('listening', '◉', 'Listening');
+
                 } else if (data.state === 'ordering') {
                     this.updateButton('ordering');
                 }
@@ -139,6 +188,16 @@ class VoiceAgent {
                         message: finalText
                     });
                 }
+            }
+        });
+
+        // Passive transcription - captured but no response
+        this.socket.on('transcription_passive', (data) => {
+            if (data.session_id === this.sessionId) {
+                console.log('[Passive] Captured:', data.text);
+                // Update debug to show captured text
+                document.getElementById('debug-transcript').textContent = `[Passive] ${data.text}`;
+                // No AI response - just capturing context
             }
         });
 
@@ -238,6 +297,12 @@ class VoiceAgent {
             resetSessionBtn.addEventListener('click', () => this.resetSession());
         }
 
+        // Stop listening button
+        const stopListeningBtn = document.getElementById('stop-listening-btn');
+        if (stopListeningBtn) {
+            stopListeningBtn.addEventListener('click', () => this.handleStopListening());
+        }
+
         // Monitor for barge-in during speech
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && this.isSpeaking) {
@@ -248,6 +313,28 @@ class VoiceAgent {
 
     async handleStartOrder() {
         console.log('User tapped button...');
+
+        if (this.sessionState === 'confirmed_passive' || this.sessionState === 'confirmed_stopped') {
+            // Resume active conversation from passive/stopped state
+            console.log('[Session] Resuming active conversation from passive/stopped state');
+
+            // Emit resume event
+            this.socket.emit('resume_conversation', {
+                session_id: this.sessionId
+            });
+
+            // Hide button and stop button
+            const startButtonArea = document.getElementById('start-button-area');
+            startButtonArea.classList.add('hidden');
+
+            const stopButton = document.getElementById('stop-listening-btn');
+            stopButton.classList.add('hidden');
+
+            // Show status
+            this.updateStatus('listening', '◉', 'Listening');
+
+            return;
+        }
 
         if (this.sessionState === 'confirmed') {
             // "Tap for Anything" - resume conversation
@@ -676,6 +763,30 @@ class VoiceAgent {
                 session_id: this.sessionId
             });
         }
+    }
+
+    handleStopListening() {
+        console.log('[Session] User requested to stop passive listening');
+
+        // Emit stop listening event
+        this.socket.emit('stop_listening', {
+            session_id: this.sessionId
+        });
+
+        // Stop recording
+        this.stopRecording();
+
+        // Hide status area
+        const statusArea = document.getElementById('status-area');
+        statusArea.classList.add('hidden');
+
+        // Hide stop button
+        const stopButton = document.getElementById('stop-listening-btn');
+        stopButton.classList.add('hidden');
+
+        // Show "Tap for Anything" button
+        const startButtonArea = document.getElementById('start-button-area');
+        startButtonArea.classList.remove('hidden');
     }
 
     escapeHtml(text) {

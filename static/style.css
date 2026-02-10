@@ -653,6 +653,35 @@ body {
     display: none;
 }
 
+/* Stop listening button */
+.stop-listening-btn {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 32px;
+    background: #ff9500;
+    color: white;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    z-index: 100;
+    box-shadow: 0 4px 16px rgba(255, 149, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.stop-listening-btn:hover {
+    background: #ff8800;
+    transform: translateX(-50%) translateY(-2px);
+    box-shadow: 0 6px 20px rgba(255, 149, 0, 0.4);
+}
+
+.stop-listening-btn.hidden {
+    display: none;
+}
+
 /* Button state variations */
 .start-order-btn.confirmed {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
