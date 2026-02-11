@@ -16,6 +16,7 @@ from dashscope.audio.asr import Recognition
 import dashscope
 from http import HTTPStatus
 from streaming_utils import has_sentence_ending
+from performance_monitor import PerformanceMetrics
 
 load_dotenv()
 
@@ -36,6 +37,9 @@ socketio = SocketIO(
 
 # Initialize DashScope client
 dashscope_client = DashScopeClient()
+
+# Initialize performance monitoring
+perf_monitor = PerformanceMetrics(max_history=100)
 
 # In-memory session storage
 sessions = {}
