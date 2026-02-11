@@ -14,6 +14,8 @@ import base64
 from dotenv import load_dotenv
 from dashscope.audio.asr import Recognition
 import dashscope
+from http import HTTPStatus
+from streaming_utils import has_sentence_ending
 
 load_dotenv()
 
@@ -704,12 +706,89 @@ CRITICAL RULES:
                 'content': msg['content']
             })
 
-        # Get AI response
-        response = dashscope_client.chat(messages, model='qwen-turbo')
+        # Get AI response with streaming
+        print(f"[LLM] Starting streaming response generation")
+        response_generator = dashscope_client.chat(messages, model='qwen-turbo', stream=True)
 
-        # Parse order updates from response
+        # Stream LLM response and pipeline to TTS
+        full_response = ""
+        sentence_buffer = ""
         order_update = None
-        clean_response = response
+
+        # Get voice for this table
+        voice = voices_data.get('tables', {}).get(session.table_id, 'Cherry')
+
+        # Notify client that response is starting
+        emit('llm_started', {'session_id': session_id})
+
+        for chunk in response_generator:
+            if chunk.status_code == HTTPStatus.OK:
+                chunk_text = chunk.output.choices[0].message.content
+                full_response += chunk_text
+                sentence_buffer += chunk_text
+
+                # Send chunk to client for display (optional)
+                emit('llm_chunk', {
+                    'session_id': session_id,
+                    'text': chunk_text
+                })
+
+                # Check if we have a complete sentence or phrase
+                if has_sentence_ending(sentence_buffer):
+                    print(f"[LLM→TTS] Sentence complete, streaming to TTS: {sentence_buffer[:50]}...")
+
+                    # Stream this sentence to TTS immediately
+                    emit('synthesis_started', {'session_id': session_id})
+
+                    try:
+                        for audio_chunk in dashscope_client.synthesize(
+                            sentence_buffer.strip(),
+                            voice=voice,
+                            language_type='Auto',
+                            stream=True
+                        ):
+                            emit('audio_chunk', {
+                                'session_id': session_id,
+                                'chunk_type': audio_chunk['type'],
+                                'audio_data': audio_chunk['data'],
+                                'is_final': False
+                            })
+                    except Exception as e:
+                        print(f"[TTS] Streaming error: {e}")
+
+                    sentence_buffer = ""
+
+        # Handle any remaining text in buffer
+        if sentence_buffer.strip():
+            print(f"[LLM→TTS] Final sentence, streaming to TTS: {sentence_buffer[:50]}...")
+            emit('synthesis_started', {'session_id': session_id})
+
+            try:
+                for audio_chunk in dashscope_client.synthesize(
+                    sentence_buffer.strip(),
+                    voice=voice,
+                    language_type='Auto',
+                    stream=True
+                ):
+                    emit('audio_chunk', {
+                        'session_id': session_id,
+                        'chunk_type': audio_chunk['type'],
+                        'audio_data': audio_chunk['data'],
+                        'is_final': False
+                    })
+            except Exception as e:
+                print(f"[TTS] Streaming error: {e}")
+
+        # Send final audio marker
+        emit('audio_chunk', {
+            'session_id': session_id,
+            'is_final': True
+        })
+
+        print(f"[LLM] Complete response: {full_response[:100]}...")
+
+        # Parse order updates from full response
+        clean_response = full_response
 
         if 'ORDER_UPDATE:' in response:
             parts = response.split('ORDER_UPDATE:')
