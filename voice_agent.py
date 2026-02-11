@@ -589,8 +589,10 @@ ORDER_UPDATE: {{"action": "add", "items": [{{"name": "Item Name", "quantity": 1,
 
 Actions:
 - "add": Customer orders new items
-- "remove": Customer cancels items (e.g., "cancel the soup", "remove the chicken")
+- "remove": Customer cancels items (e.g., "cancel the soup", "remove the chicken", "我不想要...")
 - "modify": Customer changes quantity (e.g., "make that two", "change to three")
+
+CRITICAL: You MUST generate ORDER_UPDATE for ALL order changes, including removals!
 
 Examples:
 Customer: "I'll have the Kung Pao Chicken"
@@ -608,10 +610,17 @@ Response: No problem! I'll change that to two orders.
 
 ORDER_UPDATE: {{"action": "modify", "items": [{{"name": "Kung Pao Chicken", "quantity": 2, "price": 14.99, "modifications": []}}]}}
 
-Customer: "Cancel the soup"
+Customer: "Cancel the soup" or "我不想要汤了"
 Response: Sure, I'll remove the soup from your order.
 
 ORDER_UPDATE: {{"action": "remove", "items": [{{"name": "Spring Rolls", "quantity": 1, "price": 8.99, "modifications": []}}]}}
+
+Customer: "我不想要宫保鸡丁，给我两瓶青岛啤酒"
+Response: 好的，我将为您取消宫保鸡丁，并添加两瓶青岛啤酒。
+
+ORDER_UPDATE: {{"action": "remove", "items": [{{"name": "宫保鸡丁", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "青岛啤酒", "quantity": 2, "price": 5.99, "modifications": []}}]}}
 
 CRITICAL RULES:
 1. ONLY include ORDER_UPDATE when customer EXPLICITLY orders/modifies/removes items
@@ -625,8 +634,16 @@ CRITICAL RULES:
    - "来一份..." (Bring me one...)
    - "I'll have..."
    - "Can I get..."
-4. If customer just asks "what do you recommend?" - DO NOT add items to order
-5. Only add items when customer explicitly confirms they want to order them
+4. Customer must use removal language like:
+   - "取消..." (Cancel...)
+   - "不想要..." (Don't want...)
+   - "去掉..." (Remove...)
+   - "Cancel..."
+   - "Remove..."
+5. If customer just asks "what do you recommend?" - DO NOT add items to order
+6. Only add items when customer explicitly confirms they want to order them
+7. ALWAYS generate ORDER_UPDATE for removals - this is critical!
+8. You can have multiple ORDER_UPDATE blocks in one response (e.g., one remove + one add)
 """
         elif session.state == SessionState.CONFIRMED:
             # Build confirmed order summary
