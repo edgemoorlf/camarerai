@@ -613,8 +613,20 @@ Response: Sure, I'll remove the soup from your order.
 
 ORDER_UPDATE: {{"action": "remove", "items": [{{"name": "Spring Rolls", "quantity": 1, "price": 8.99, "modifications": []}}]}}
 
-ONLY include ORDER_UPDATE when customer is actually ordering/modifying/removing items.
-DO NOT include ORDER_UPDATE for questions, recommendations, or general conversation.
+CRITICAL RULES:
+1. ONLY include ORDER_UPDATE when customer EXPLICITLY orders/modifies/removes items
+2. DO NOT include ORDER_UPDATE when:
+   - Making recommendations (e.g., "我们有宫保鸡丁和回锅肉")
+   - Answering questions (e.g., "还有什么推荐吗？")
+   - General conversation
+3. Customer must use ordering language like:
+   - "我要..." (I want...)
+   - "给我..." (Give me...)
+   - "来一份..." (Bring me one...)
+   - "I'll have..."
+   - "Can I get..."
+4. If customer just asks "what do you recommend?" - DO NOT add items to order
+5. Only add items when customer explicitly confirms they want to order them
 """
         elif session.state == SessionState.CONFIRMED:
             # Build confirmed order summary
@@ -650,7 +662,15 @@ When customer orders NEW items, add this at the END of your response:
 
 ORDER_UPDATE: {{"action": "add", "items": [{{"name": "Item Name", "quantity": 1, "price": 14.99, "modifications": []}}]}}
 
-ONLY use action "add". DO NOT use "modify" or "remove" actions.
+CRITICAL RULES:
+1. ONLY use action "add". DO NOT use "modify" or "remove" actions.
+2. ONLY include ORDER_UPDATE when customer EXPLICITLY orders items
+3. DO NOT include ORDER_UPDATE when:
+   - Making recommendations
+   - Answering questions
+   - General conversation
+4. Customer must use ordering language like "我要...", "给我...", "来一份...", "I'll have...", "Can I get..."
+5. If customer just asks "what do you recommend?" - DO NOT add items to order
 """
         else:
             # Default prompt for other states
