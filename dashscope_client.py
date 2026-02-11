@@ -119,11 +119,7 @@ class DashScopeClient:
             Audio URL (non-streaming) or streaming response generator (streaming)
         """
         try:
-            print(f"[TTS Debug] Calling MultiModalConversation.call with:")
-            print(f"  model: qwen3-tts-flash")
-            print(f"  text: {text[:50]}...")
-            print(f"  voice: {voice}")
-            print(f"  language_type: {language_type}")
+            print(f"[TTS] Synthesizing: {text[:50]}... (voice: {voice}, stream: {stream})")
 
             response = MultiModalConversation.call(
                 model='qwen3-tts-flash',
@@ -131,36 +127,77 @@ class DashScopeClient:
                 voice=voice,
                 language_type=language_type,
                 api_key=self.api_key,
-                stream=stream
+                stream=stream,
+                incremental_output=stream  # Enable incremental output for streaming
             )
 
-            print(f"[TTS Debug] Response received:")
-            print(f"  status_code: {response.status_code}")
-            print(f"  type: {type(response)}")
-
-            if hasattr(response, 'output'):
-                print(f"  output type: {type(response.output)}")
-                print(f"  output: {response.output}")
-
-            if hasattr(response, 'message'):
-                print(f"  message: {response.message}")
-
             if stream:
-                # Return generator for streaming
-                return response
+                # Return generator for streaming audio chunks
+                print(f"[TTS] Streaming mode enabled")
+                return self._stream_audio_chunks(response)
             else:
                 # Return audio URL for non-streaming
                 if response.status_code == HTTPStatus.OK:
                     # Audio URL is nested in response.output['audio']['url']
                     audio_data = response.output.get('audio', {})
                     audio_url = audio_data.get('url') if isinstance(audio_data, dict) else None
-                    print(f"[TTS Debug] Extracted audio_url: {audio_url}")
+                    print(f"[TTS] Audio URL: {audio_url}")
                     return audio_url
                 else:
                     raise Exception(f"TTS failed: {response.message}")
 
         except Exception as e:
             print(f"✗ Synthesis error: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def _stream_audio_chunks(self, response_generator):
+        """
+        Process streaming TTS response and yield audio chunks
+
+        Args:
+            response_generator: Streaming response from MultiModalConversation.call
+
+        Yields:
+            Audio data chunks (base64 encoded or raw bytes)
+        """
+        try:
+            chunk_count = 0
+            for chunk in response_generator:
+                if chunk.status_code == HTTPStatus.OK:
+                    # Extract audio data from chunk
+                    if hasattr(chunk, 'output') and chunk.output:
+                        audio_data = chunk.output.get('audio', {})
+
+                        # Check for audio URL (some chunks may have URL)
+                        if isinstance(audio_data, dict) and 'url' in audio_data:
+                            audio_url = audio_data.get('url')
+                            if audio_url:
+                                chunk_count += 1
+                                print(f"[TTS] Chunk {chunk_count}: URL received")
+                                yield {'type': 'url', 'data': audio_url}
+
+                        # Check for raw audio data (base64 or bytes)
+                        elif isinstance(audio_data, dict) and 'data' in audio_data:
+                            audio_chunk = audio_data.get('data')
+                            if audio_chunk:
+                                chunk_count += 1
+                                print(f"[TTS] Chunk {chunk_count}: {len(audio_chunk)} bytes")
+                                yield {'type': 'data', 'data': audio_chunk}
+
+                        # Check if audio_data itself is the data
+                        elif audio_data and not isinstance(audio_data, dict):
+                            chunk_count += 1
+                            print(f"[TTS] Chunk {chunk_count}: raw data")
+                            yield {'type': 'data', 'data': audio_data}
+                else:
+                    print(f"[TTS] Chunk error: {chunk.status_code} - {chunk.message}")
+
+            print(f"[TTS] Streaming complete: {chunk_count} chunks")
+
+        except Exception as e:
+            print(f"[TTS] Streaming error: {e}")
             import traceback
             traceback.print_exc()
             raise

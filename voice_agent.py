@@ -911,9 +911,10 @@ CRITICAL RULES:
 
 @socketio.on('synthesize')
 def handle_synthesize(data):
-    """Convert text to speech"""
+    """Convert text to speech with streaming support"""
     session_id = data.get('session_id')
     text = data.get('text')
+    stream = data.get('stream', True)  # Default to streaming for better UX
 
     if not session_id or session_id not in sessions:
         emit('error', {'message': 'Invalid session'})
@@ -925,24 +926,58 @@ def handle_synthesize(data):
         # Get voice for this table
         voice = voices_data.get('tables', {}).get(session.table_id, 'Cherry')
 
-        print(f"[TTS] Synthesizing text: {text[:50]}... (voice: {voice})")
+        print(f"[TTS] Synthesizing text: {text[:50]}... (voice: {voice}, stream: {stream})")
 
-        # Synthesize speech
-        audio_url = dashscope_client.synthesize(text, voice=voice, language_type='Auto')
+        if stream:
+            # Streaming mode - send audio chunks progressively
+            print(f"[TTS] Starting streaming synthesis")
 
-        print(f"[TTS] Audio URL received: {audio_url}")
+            # Notify client that streaming is starting
+            emit('synthesis_started', {
+                'session_id': session_id
+            })
 
-        if not audio_url:
-            print(f"[TTS] Warning: audio_url is None or empty")
-            emit('error', {'message': 'TTS returned no audio URL'})
-            return
+            # Stream audio chunks
+            chunk_count = 0
+            for audio_chunk in dashscope_client.synthesize(text, voice=voice, language_type='Auto', stream=True):
+                chunk_count += 1
 
-        emit('synthesis_complete', {
-            'session_id': session_id,
-            'audio_url': audio_url
-        })
+                # Send chunk to client
+                emit('audio_chunk', {
+                    'session_id': session_id,
+                    'chunk_type': audio_chunk['type'],
+                    'audio_data': audio_chunk['data'],
+                    'chunk_number': chunk_count,
+                    'is_final': False
+                })
 
-        print(f"[TTS] Synthesis complete, URL sent to client")
+                print(f"[TTS] Sent chunk {chunk_count} ({audio_chunk['type']}) to client")
+
+            # Send final marker
+            emit('audio_chunk', {
+                'session_id': session_id,
+                'is_final': True
+            })
+
+            print(f"[TTS] Streaming complete: {chunk_count} chunks sent")
+
+        else:
+            # Non-streaming mode - send complete audio URL
+            audio_url = dashscope_client.synthesize(text, voice=voice, language_type='Auto', stream=False)
+
+            print(f"[TTS] Audio URL received: {audio_url}")
+
+            if not audio_url:
+                print(f"[TTS] Warning: audio_url is None or empty")
+                emit('error', {'message': 'TTS returned no audio URL'})
+                return
+
+            emit('synthesis_complete', {
+                'session_id': session_id,
+                'audio_url': audio_url
+            })
+
+            print(f"[TTS] Synthesis complete, URL sent to client")
 
     except Exception as e:
         print(f"[TTS] Error: {e}")

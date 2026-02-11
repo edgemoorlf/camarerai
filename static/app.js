@@ -19,6 +19,10 @@ class VoiceAgent {
         this.confirmedItems = [];    // Locked items after confirmation
         this.currentOrder = [];      // New items being added
 
+        // Streaming audio playback
+        this.audioStreamPlayer = null;
+        this.streamingEnabled = true;  // Enable streaming by default
+
         // Client-side speaker verification
         this.speakerVerifier = new ClientSpeakerVerifier(0.75); // threshold
         this.enrollmentAudioBuffer = [];
@@ -243,10 +247,57 @@ class VoiceAgent {
             }
         });
 
-        // Synthesis complete - auto-play
+        // TTS synthesis started (streaming mode)
+        this.socket.on('synthesis_started', (data) => {
+            if (data.session_id === this.sessionId) {
+                console.log('[TTS] Streaming synthesis started');
+                this.isSpeaking = true;
+                this.updateStatus('speaking', '🔊', 'Speaking');
+
+                // Initialize streaming audio player
+                if (!this.audioStreamPlayer) {
+                    this.audioStreamPlayer = new AudioStreamPlayer();
+                    this.audioStreamPlayer.setOnEndCallback(() => {
+                        console.log('[TTS] All audio chunks played');
+                        this.isSpeaking = false;
+                        this.updateStatus('listening', '◉', 'Listening');
+                    });
+                }
+                this.audioStreamPlayer.reset();
+            }
+        });
+
+        // TTS audio chunk received (streaming mode)
+        this.socket.on('audio_chunk', async (data) => {
+            if (data.session_id === this.sessionId) {
+                if (data.is_final) {
+                    console.log('[TTS] Streaming complete');
+                    // Audio will continue playing until all chunks are done
+                    // The audioStreamPlayer will handle the end event
+                } else {
+                    console.log(`[TTS] Received chunk ${data.chunk_number} (${data.chunk_type})`);
+
+                    try {
+                        if (data.chunk_type === 'url') {
+                            // Audio URL chunk - fetch and add to queue
+                            await this.audioStreamPlayer.addAudioUrl(data.audio_data);
+                        } else if (data.chunk_type === 'data') {
+                            // Raw audio data chunk - add to queue
+                            await this.audioStreamPlayer.addAudioData(data.audio_data);
+                        }
+                    } catch (error) {
+                        console.error('[TTS] Error processing audio chunk:', error);
+                    }
+                }
+            }
+        });
+
+        // TTS synthesis complete (non-streaming mode - fallback)
         this.socket.on('synthesis_complete', (data) => {
             if (data.session_id === this.sessionId) {
-                console.log('Synthesis complete:', data.audio_url);
+                console.log('Synthesis complete (non-streaming), playing audio');
+                this.isSpeaking = true;
+                this.updateStatus('speaking', '🔊', 'Speaking');
                 this.playAudio(data.audio_url);
             }
         });
@@ -607,6 +658,11 @@ class VoiceAgent {
             this.audioPlayer.currentTime = 0;
         }
 
+        // Stop streaming audio player
+        if (this.audioStreamPlayer) {
+            this.audioStreamPlayer.stop();
+        }
+
         this.isSpeaking = false;
         this.updateStatus('listening', '◉', 'Listening');
 
@@ -629,7 +685,8 @@ class VoiceAgent {
     synthesizeSpeech(text) {
         this.socket.emit('synthesize', {
             session_id: this.sessionId,
-            text: text
+            text: text,
+            stream: this.streamingEnabled  // Request streaming
         });
     }
 
