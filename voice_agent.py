@@ -811,7 +811,7 @@ CRITICAL RULES:
         clean_response = full_response
 
         if 'ORDER_UPDATE:' in full_response:
-            parts = response.split('ORDER_UPDATE:')
+            parts = full_response.split('ORDER_UPDATE:')
             clean_response = parts[0].strip()
             try:
                 import json
