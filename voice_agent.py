@@ -723,49 +723,69 @@ CRITICAL RULES:
 
         for chunk in response_generator:
             if chunk.status_code == HTTPStatus.OK:
+                # Get the delta (incremental text), not the full accumulated text
                 chunk_text = chunk.output.choices[0].message.content
-                full_response += chunk_text
-                sentence_buffer += chunk_text
 
-                # Send chunk to client for display (optional)
-                emit('llm_chunk', {
-                    'session_id': session_id,
-                    'text': chunk_text
-                })
+                # For streaming, DashScope returns incremental deltas
+                # We need to extract only the new text, not accumulated text
+                if chunk_text:
+                    # Calculate the new text by comparing with what we already have
+                    if chunk_text.startswith(full_response):
+                        # This is accumulated text, extract only the delta
+                        delta_text = chunk_text[len(full_response):]
+                    else:
+                        # This is already a delta
+                        delta_text = chunk_text
 
-                # Check if we have a complete sentence or phrase
-                if has_sentence_ending(sentence_buffer):
-                    print(f"[LLM→TTS] Sentence complete, streaming to TTS: {sentence_buffer[:50]}...")
+                    if delta_text:
+                        full_response += delta_text
+                        sentence_buffer += delta_text
 
-                    # Stream this sentence to TTS immediately
-                    emit('synthesis_started', {'session_id': session_id})
+                        # Send chunk to client for display (optional)
+                        emit('llm_chunk', {
+                            'session_id': session_id,
+                            'text': delta_text
+                        })
 
-                    try:
-                        for audio_chunk in dashscope_client.synthesize(
-                            sentence_buffer.strip(),
-                            voice=voice,
-                            language_type='Auto',
-                            stream=True
-                        ):
-                            emit('audio_chunk', {
-                                'session_id': session_id,
-                                'chunk_type': audio_chunk['type'],
-                                'audio_data': audio_chunk['data'],
-                                'is_final': False
-                            })
-                    except Exception as e:
-                        print(f"[TTS] Streaming error: {e}")
+                        # Check if we have a complete sentence or phrase
+                        if has_sentence_ending(sentence_buffer):
+                            # Limit sentence length to 500 chars (DashScope limit is 600)
+                            sentence_to_synthesize = sentence_buffer.strip()[:500]
 
-                    sentence_buffer = ""
+                            print(f"[LLM→TTS] Sentence complete ({len(sentence_to_synthesize)} chars), streaming to TTS: {sentence_to_synthesize[:50]}...")
+
+                            # Stream this sentence to TTS immediately
+                            emit('synthesis_started', {'session_id': session_id})
+
+                            try:
+                                for audio_chunk in dashscope_client.synthesize(
+                                    sentence_to_synthesize,
+                                    voice=voice,
+                                    language_type='Auto',
+                                    stream=True
+                                ):
+                                    emit('audio_chunk', {
+                                        'session_id': session_id,
+                                        'chunk_type': audio_chunk['type'],
+                                        'audio_data': audio_chunk['data'],
+                                        'is_final': False
+                                    })
+                            except Exception as e:
+                                print(f"[TTS] Streaming error: {e}")
+
+                            sentence_buffer = ""
 
         # Handle any remaining text in buffer
         if sentence_buffer.strip():
-            print(f"[LLM→TTS] Final sentence, streaming to TTS: {sentence_buffer[:50]}...")
+            # Limit sentence length to 500 chars (DashScope limit is 600)
+            final_sentence = sentence_buffer.strip()[:500]
+
+            print(f"[LLM→TTS] Final sentence ({len(final_sentence)} chars), streaming to TTS: {final_sentence[:50]}...")
             emit('synthesis_started', {'session_id': session_id})
 
             try:
                 for audio_chunk in dashscope_client.synthesize(
-                    sentence_buffer.strip(),
+                    final_sentence,
                     voice=voice,
                     language_type='Auto',
                     stream=True
@@ -790,7 +810,7 @@ CRITICAL RULES:
         # Parse order updates from full response
         clean_response = full_response
 
-        if 'ORDER_UPDATE:' in response:
+        if 'ORDER_UPDATE:' in full_response:
             parts = response.split('ORDER_UPDATE:')
             clean_response = parts[0].strip()
             try:
