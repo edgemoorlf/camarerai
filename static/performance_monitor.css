@@ -1,0 +1,209 @@
+/* Performance Monitor Styles */
+
+.performance-panel {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    width: 350px;
+    max-height: 600px;
+    z-index: 1001;
+    overflow: hidden;
+}
+
+.performance-panel.hidden {
+    display: none;
+}
+
+.perf-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #d2d2d7;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.perf-header h3 {
+    font-size: 17px;
+    font-weight: 600;
+    color: white;
+    margin: 0;
+}
+
+.perf-close {
+    background: none;
+    border: none;
+    font-size: 28px;
+    color: white;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.perf-close:hover {
+    opacity: 1;
+}
+
+.perf-content {
+    padding: 20px;
+    max-height: 520px;
+    overflow-y: auto;
+}
+
+.perf-section {
+    margin-bottom: 24px;
+}
+
+.perf-section:last-child {
+    margin-bottom: 0;
+}
+
+.perf-section h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #86868b;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.perf-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.perf-metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #f5f5f7;
+    border-radius: 8px;
+}
+
+.perf-metric.perf-total {
+    background: #e8e8ed;
+    font-weight: 600;
+    margin-top: 4px;
+}
+
+.perf-label {
+    font-size: 14px;
+    color: #1d1d1f;
+}
+
+.perf-value {
+    font-size: 16px;
+    font-weight: 600;
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.perf-value.perf-excellent {
+    color: #34c759;
+}
+
+.perf-value.perf-good {
+    color: #ff9500;
+}
+
+.perf-value.perf-slow {
+    color: #ff3b30;
+}
+
+.perf-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.perf-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    background: #f5f5f7;
+    border-radius: 6px;
+}
+
+.perf-stat-label {
+    font-size: 13px;
+    color: #86868b;
+}
+
+.perf-stat-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d1d1f;
+    font-family: 'SF Mono', Monaco, monospace;
+}
+
+.perf-toggle-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+    transition: all 0.2s ease;
+    z-index: 1000;
+}
+
+.perf-toggle-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+/* Hide toggle button when panel is visible */
+.performance-panel:not(.hidden) ~ .perf-toggle-btn {
+    display: none;
+}
+
+/* Scrollbar styling for performance panel */
+.perf-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.perf-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.perf-content::-webkit-scrollbar-thumb {
+    background: #d2d2d7;
+    border-radius: 3px;
+}
+
+.perf-content::-webkit-scrollbar-thumb:hover {
+    background: #86868b;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .performance-panel {
+        width: calc(100vw - 40px);
+        right: 20px;
+        left: 20px;
+    }
+
+    .perf-toggle-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 20px;
+    }
+}

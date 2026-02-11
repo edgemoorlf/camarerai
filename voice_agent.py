@@ -319,6 +319,10 @@ class StreamingRecognitionCallback:
 
                         print(f"[ASR] Sentence complete: {full_text}")
 
+                        # Mark ASR complete for performance tracking
+                        perf_monitor.mark_event('asr_complete')
+                        perf_monitor.end_timer('asr')
+
                         # Check if session is in passive mode
                         if self.session_id in sessions:
                             session = sessions[self.session_id]
@@ -427,6 +431,9 @@ def handle_start_recognition(data):
         return
 
     try:
+        # Start performance tracking for ASR
+        perf_monitor.start_timer('asr')
+
         # Create callback for this recognition session
         callback = StreamingRecognitionCallback(session_id, socketio, request.sid)
 
@@ -712,6 +719,11 @@ CRITICAL RULES:
 
         # Get AI response with streaming
         print(f"[LLM] Starting streaming response generation")
+
+        # Start performance tracking for LLM
+        perf_monitor.start_timer('llm')
+        perf_monitor.mark_event('llm_start')
+
         response_generator = dashscope_client.chat(messages, model='qwen-turbo', stream=True)
 
         # Stream LLM response and pipeline to TTS
@@ -729,6 +741,13 @@ CRITICAL RULES:
             if chunk.status_code == HTTPStatus.OK:
                 # Get the delta (incremental text), not the full accumulated text
                 chunk_text = chunk.output.choices[0].message.content
+
+                # Mark first LLM token for performance tracking
+                if not full_response:
+                    perf_monitor.mark_event('llm_first_chunk')
+                    llm_first_token = perf_monitor.calculate_duration('llm_start', 'llm_first_chunk')
+                    if llm_first_token:
+                        print(f"[Perf] LLM first token in {llm_first_token:.0f}ms")
 
                 # For streaming, DashScope returns incremental deltas
                 # We need to extract only the new text, not accumulated text
@@ -758,16 +777,28 @@ CRITICAL RULES:
 
                             print(f"[LLM→TTS] Sentence complete ({len(sentence_to_synthesize)} chars), streaming to TTS: {sentence_to_synthesize[:50]}...")
 
+                            # Mark TTS start for performance tracking
+                            perf_monitor.mark_event('tts_start')
+
                             # Stream this sentence to TTS immediately
                             emit('synthesis_started', {'session_id': session_id})
 
                             try:
+                                first_audio_chunk = True
                                 for audio_chunk in dashscope_client.synthesize(
                                     sentence_to_synthesize,
                                     voice=voice,
                                     language_type='Auto',
                                     stream=True
                                 ):
+                                    # Mark first audio for performance tracking
+                                    if first_audio_chunk:
+                                        perf_monitor.mark_event('first_audio')
+                                        first_audio_time = perf_monitor.calculate_duration('tts_start', 'first_audio')
+                                        if first_audio_time:
+                                            print(f"[Perf] First audio in {first_audio_time:.0f}ms")
+                                        first_audio_chunk = False
+
                                     emit('audio_chunk', {
                                         'session_id': session_id,
                                         'chunk_type': audio_chunk['type'],
@@ -807,6 +838,17 @@ CRITICAL RULES:
         emit('audio_chunk', {
             'session_id': session_id,
             'is_final': True
+        })
+
+        # End LLM timer
+        perf_monitor.end_timer('llm')
+
+        # Record this request and send metrics to client
+        perf_monitor.record_request()
+        metrics = perf_monitor.get_metrics_for_client()
+        emit('performance_metrics', {
+            'session_id': session_id,
+            'metrics': metrics
         })
 
         print(f"[LLM] Complete response: {full_response[:100]}...")

@@ -39,6 +39,9 @@ class VoiceAgent {
         // Set up event listeners
         this.setupEventListeners();
 
+        // Initialize performance monitor
+        this.perfMonitor = new PerformanceMonitor();
+
         // Don't auto-start - wait for user interaction
         console.log('Ready. Waiting for user to tap "Touch to Order" button...');
     }
@@ -306,6 +309,15 @@ class VoiceAgent {
         this.socket.on('error', (data) => {
             console.error('Server error:', data.message);
             this.updateStatus('listening', '◉', 'Listening');
+        });
+
+        // Performance metrics
+        this.socket.on('performance_metrics', (data) => {
+            if (data.session_id === this.sessionId && this.perfMonitor) {
+                console.log('[Perf] Metrics received:', data.metrics);
+                this.perfMonitor.updateCurrent(data.metrics);
+                this.perfMonitor.recordMetrics(data.metrics);
+            }
         });
     }
 
