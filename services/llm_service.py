@@ -49,8 +49,14 @@ class LLMService:
         sentence_buffer = ""
         tool_call_buffer = {"id": None, "name": None, "arguments": ""}
 
+        # TTS tracking
+        tts_call_count = 0
+        sentences_sent = []
+
         # Notify client
         emit_func('llm_started', {'session_id': session_id})
+
+        print(f"[TTS-Debug] Starting LLM streaming loop")
 
         for chunk in stream:
             delta = chunk.choices[0].delta
@@ -64,8 +70,12 @@ class LLMService:
                     if llm_first_token:
                         print(f"[Perf] LLM first token in {llm_first_token:.0f}ms")
 
+                print(f"[TTS-Debug] Received chunk: '{delta.content}'")
+
                 content_buffer += delta.content
                 sentence_buffer += delta.content
+
+                print(f"[TTS-Debug] Sentence buffer now: '{sentence_buffer}'")
 
                 # Send to client for display
                 emit_func('llm_chunk', {
@@ -74,8 +84,21 @@ class LLMService:
                 })
 
                 # Check for sentence ending
-                if has_sentence_ending(sentence_buffer):
-                    self._stream_to_tts(sentence_buffer, voice, session_id, emit_func)
+                has_ending = has_sentence_ending(sentence_buffer)
+                print(f"[TTS-Debug] has_sentence_ending: {has_ending}")
+
+                if has_ending:
+                    tts_call_count += 1
+                    sentence_to_send = sentence_buffer.strip()
+                    sentences_sent.append(sentence_to_send)
+
+                    print(f"[TTS-Debug] ===== TTS CALL #{tts_call_count} =====")
+                    print(f"[TTS-Debug] Sending to TTS: '{sentence_to_send}'")
+                    print(f"[TTS-Debug] Length: {len(sentence_to_send)} chars")
+
+                    self._stream_to_tts(sentence_buffer, voice, session_id, emit_func, tts_call_count)
+
+                    print(f"[TTS-Debug] Clearing sentence buffer")
                     sentence_buffer = ""
 
             # Handle tool calls (for order updates)
@@ -89,12 +112,29 @@ class LLMService:
                         tool_call_buffer["arguments"] += tc.function.arguments
 
         # Process any remaining sentence
+        print(f"[TTS-Debug] LLM streaming complete")
+        print(f"[TTS-Debug] Remaining sentence buffer: '{sentence_buffer}'")
+
         if sentence_buffer.strip():
-            self._stream_to_tts(sentence_buffer, voice, session_id, emit_func, is_final=True)
+            tts_call_count += 1
+            sentence_to_send = sentence_buffer.strip()
+            sentences_sent.append(sentence_to_send)
+
+            print(f"[TTS-Debug] ===== FINAL TTS CALL #{tts_call_count} =====")
+            print(f"[TTS-Debug] Sending final to TTS: '{sentence_to_send}'")
+            print(f"[TTS-Debug] Length: {len(sentence_to_send)} chars")
+
+            self._stream_to_tts(sentence_buffer, voice, session_id, emit_func, tts_call_count, is_final=True)
+
+        print(f"[TTS-Debug] ===== TTS SUMMARY =====")
+        print(f"[TTS-Debug] Total TTS calls: {tts_call_count}")
+        print(f"[TTS-Debug] Sentences sent:")
+        for i, sent in enumerate(sentences_sent, 1):
+            print(f"[TTS-Debug]   {i}. '{sent}'")
 
         return content_buffer, tool_call_buffer
 
-    def _stream_to_tts(self, text, voice, session_id, emit_func, is_final=False):
+    def _stream_to_tts(self, text, voice, session_id, emit_func, tts_call_number, is_final=False):
         """
         Stream text to TTS
 
@@ -103,9 +143,15 @@ class LLMService:
             voice: Voice ID for TTS
             session_id: Session identifier
             emit_func: Function to emit events
+            tts_call_number: Sequential number of this TTS call
             is_final: Whether this is the final sentence
         """
         sentence = text.strip()[:config.MAX_TTS_LENGTH]
+
+        print(f"[TTS-Debug] _stream_to_tts called (Call #{tts_call_number})")
+        print(f"[TTS-Debug]   Input text: '{text}'")
+        print(f"[TTS-Debug]   Trimmed sentence: '{sentence}'")
+        print(f"[TTS-Debug]   is_final: {is_final}")
 
         if is_final:
             print(f"[LLM→TTS] Final sentence: {sentence[:50]}...")
@@ -117,12 +163,16 @@ class LLMService:
             self.perf_monitor.mark_event('tts_start')
 
         # Notify TTS starting
+        print(f"[TTS-Debug] Emitting 'synthesis_started' event")
         emit_func('synthesis_started', {'session_id': session_id})
 
         # Stream to TTS
         try:
             first_audio_chunk = True
             chunk_count = 0
+
+            print(f"[TTS-Debug] Starting DashScope synthesize call")
+
             for audio_chunk in self.dashscope_client.synthesize(
                 sentence,
                 voice=voice,
@@ -137,6 +187,10 @@ class LLMService:
                     first_audio_chunk = False
 
                 chunk_count += 1
+
+                if chunk_count == 1:
+                    print(f"[TTS-Debug] First audio chunk received (type: {audio_chunk['type']})")
+
                 emit_func('audio_chunk', {
                     'session_id': session_id,
                     'chunk_type': audio_chunk['type'],
@@ -146,6 +200,7 @@ class LLMService:
                 })
 
             # Send final marker
+            print(f"[TTS-Debug] Emitting final 'audio_chunk' marker")
             emit_func('audio_chunk', {
                 'session_id': session_id,
                 'is_final': True
@@ -153,6 +208,10 @@ class LLMService:
 
             sentence_type = "Final" if is_final else "Sentence"
             print(f"[TTS] {sentence_type} streaming complete: {chunk_count} chunks sent")
+            print(f"[TTS-Debug] _stream_to_tts completed (Call #{tts_call_number})")
 
         except Exception as e:
             print(f"[TTS] Streaming error: {e}")
+            print(f"[TTS-Debug] Exception in _stream_to_tts (Call #{tts_call_number}): {e}")
+            import traceback
+            traceback.print_exc()

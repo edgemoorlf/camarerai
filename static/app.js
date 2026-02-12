@@ -253,24 +253,30 @@ class VoiceAgent {
         // TTS synthesis started (streaming mode)
         this.socket.on('synthesis_started', async (data) => {
             if (data.session_id === this.sessionId) {
-                console.log('[TTS] Streaming synthesis started');
+                console.log('[TTS-Client] ===== SYNTHESIS STARTED =====');
+                console.log('[TTS-Client] Session:', data.session_id);
+                console.log('[TTS-Client] Timestamp:', new Date().toISOString());
+
                 this.isSpeaking = true;
                 this.updateStatus('speaking', '🔊', 'Speaking');
 
                 // Initialize streaming audio player if not already done
                 if (!this.audioStreamPlayer) {
-                    console.log('[Audio] Creating AudioStreamPlayer (fallback)');
+                    console.log('[TTS-Client] Creating AudioStreamPlayer (fallback)');
                     this.audioStreamPlayer = new AudioStreamPlayer();
                     await this.audioStreamPlayer.init();
                     this.audioStreamPlayer.setOnEndCallback(() => {
-                        console.log('[TTS] All audio chunks played');
+                        console.log('[TTS-Client] ===== ALL AUDIO PLAYBACK COMPLETE =====');
                         this.isSpeaking = false;
                         this.updateStatus('listening', '◉', 'Listening');
                     });
                 } else {
+                    console.log('[TTS-Client] Reusing existing AudioStreamPlayer');
                     // Ensure AudioContext is initialized and resumed
                     await this.audioStreamPlayer.init();
                 }
+
+                console.log('[TTS-Client] Resetting audio player queue');
                 this.audioStreamPlayer.reset();
             }
         });
@@ -279,24 +285,35 @@ class VoiceAgent {
         this.socket.on('audio_chunk', async (data) => {
             if (data.session_id === this.sessionId) {
                 if (data.is_final) {
-                    console.log('[TTS] Streaming complete');
+                    console.log('[TTS-Client] ===== AUDIO STREAMING COMPLETE =====');
+                    console.log('[TTS-Client] All chunks received from server');
+                    console.log('[TTS-Client] Audio will continue playing until queue is empty');
                     // Audio will continue playing until all chunks are done
                     // The audioStreamPlayer will handle the end event
                 } else {
-                    console.log(`[TTS] Received chunk ${data.chunk_number} (${data.chunk_type})`);
+                    console.log(`[TTS-Client] ----- Chunk ${data.chunk_number} Received -----`);
+                    console.log(`[TTS-Client] Type: ${data.chunk_type}`);
+                    console.log(`[TTS-Client] Data length: ${data.audio_data ? data.audio_data.length : 0} chars`);
+                    console.log(`[TTS-Client] Timestamp: ${new Date().toISOString()}`);
 
                     try {
                         if (data.chunk_type === 'url') {
+                            console.log(`[TTS-Client] Processing URL chunk: ${data.audio_data.substring(0, 50)}...`);
                             // Audio URL chunk - fetch and add to queue
                             await this.audioStreamPlayer.addAudioUrl(data.audio_data);
+                            console.log(`[TTS-Client] URL chunk ${data.chunk_number} added to queue successfully`);
                         } else if (data.chunk_type === 'data') {
+                            console.log(`[TTS-Client] Processing raw data chunk (base64)`);
                             // Raw audio data chunk - add to queue
                             await this.audioStreamPlayer.addAudioData(data.audio_data);
+                            console.log(`[TTS-Client] Data chunk ${data.chunk_number} added to queue successfully`);
                         }
                     } catch (error) {
-                        console.error('[TTS] Error processing audio chunk:', error);
+                        console.error(`[TTS-Client] ❌ Error processing chunk ${data.chunk_number}:`, error);
                     }
                 }
+            }
+        });
             }
         });
 

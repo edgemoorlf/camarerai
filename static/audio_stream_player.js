@@ -25,10 +25,13 @@ class AudioStreamPlayer {
     }
 
     reset() {
-        console.log('[AudioStreamPlayer] Resetting player');
+        console.log('[AudioPlayer] ===== RESET CALLED =====');
+        console.log('[AudioPlayer] Stopping current playback');
+        console.log('[AudioPlayer] Clearing queue (current size:', this.audioQueue.length, ')');
         this.stop();
         this.audioQueue = [];
         this.nextStartTime = 0;
+        console.log('[AudioPlayer] Reset complete');
     }
 
     stop() {
@@ -59,33 +62,47 @@ class AudioStreamPlayer {
     }
 
     async addAudioUrl(audioUrl) {
-        console.log('[AudioStreamPlayer] Adding audio URL to queue');
+        console.log('[AudioPlayer] ----- ADD AUDIO URL -----');
+        console.log('[AudioPlayer] URL:', audioUrl.substring(0, 80) + '...');
+        console.log('[AudioPlayer] Current queue size:', this.audioQueue.length);
+        console.log('[AudioPlayer] Is playing:', this.isPlaying);
 
         try {
             await this.init();
 
+            console.log('[AudioPlayer] Fetching audio from URL...');
             // Fetch audio data
             const response = await fetch(audioUrl);
             const arrayBuffer = await response.arrayBuffer();
+            console.log('[AudioPlayer] Fetched', arrayBuffer.byteLength, 'bytes');
 
+            console.log('[AudioPlayer] Decoding audio data...');
             // Decode audio data
             const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+            console.log('[AudioPlayer] Decoded successfully');
+            console.log('[AudioPlayer] Duration:', audioBuffer.duration.toFixed(2), 'seconds');
+            console.log('[AudioPlayer] Sample rate:', audioBuffer.sampleRate, 'Hz');
+            console.log('[AudioPlayer] Channels:', audioBuffer.numberOfChannels);
 
             // Add to queue
             this.audioQueue.push({
                 type: 'buffer',
-                buffer: audioBuffer
+                buffer: audioBuffer,
+                addedAt: new Date().toISOString()
             });
 
-            console.log(`[AudioStreamPlayer] Audio URL added (${audioBuffer.duration.toFixed(2)}s), queue size: ${this.audioQueue.length}`);
+            console.log('[AudioPlayer] Added to queue. New queue size:', this.audioQueue.length);
 
             // Start playing if not already
             if (!this.isPlaying) {
+                console.log('[AudioPlayer] Not currently playing, starting playback...');
                 this.playNext();
+            } else {
+                console.log('[AudioPlayer] Already playing, chunk will play when ready');
             }
 
         } catch (error) {
-            console.error('[AudioStreamPlayer] Error adding audio URL:', error);
+            console.error('[AudioPlayer] ❌ Error adding audio URL:', error);
             throw error;
         }
     }
@@ -128,11 +145,14 @@ class AudioStreamPlayer {
 
     playNext() {
         if (this.audioQueue.length === 0) {
-            console.log('[AudioStreamPlayer] Queue empty, playback complete');
+            console.log('[AudioPlayer] ===== QUEUE EMPTY =====');
+            console.log('[AudioPlayer] All audio chunks have been played');
+            console.log('[AudioPlayer] Playback complete');
             this.isPlaying = false;
 
             // Trigger end callback
             if (this.onEndCallback) {
+                console.log('[AudioPlayer] Triggering onEnd callback');
                 this.onEndCallback();
             }
 
@@ -144,7 +164,11 @@ class AudioStreamPlayer {
         const item = this.audioQueue.shift();
         const buffer = item.buffer;
 
-        console.log(`[AudioStreamPlayer] Playing next chunk (${buffer.duration.toFixed(2)}s), ${this.audioQueue.length} remaining`);
+        console.log('[AudioPlayer] ===== PLAYING NEXT CHUNK =====');
+        console.log('[AudioPlayer] Duration:', buffer.duration.toFixed(2), 'seconds');
+        console.log('[AudioPlayer] Remaining in queue:', this.audioQueue.length);
+        console.log('[AudioPlayer] Added at:', item.addedAt);
+        console.log('[AudioPlayer] Playing at:', new Date().toISOString());
 
         // Create buffer source
         const source = this.audioContext.createBufferSource();
@@ -155,8 +179,13 @@ class AudioStreamPlayer {
         const currentTime = this.audioContext.currentTime;
         const startTime = Math.max(currentTime, this.nextStartTime);
 
+        console.log('[AudioPlayer] AudioContext current time:', currentTime.toFixed(2), 's');
+        console.log('[AudioPlayer] Scheduled start time:', startTime.toFixed(2), 's');
+        console.log('[AudioPlayer] Next start time will be:', (startTime + buffer.duration).toFixed(2), 's');
+
         source.onended = () => {
-            console.log('[AudioStreamPlayer] Chunk playback ended');
+            console.log('[AudioPlayer] ----- Chunk playback ended -----');
+            console.log('[AudioPlayer] Moving to next chunk...');
             this.playNext();
         };
 
@@ -166,7 +195,7 @@ class AudioStreamPlayer {
         // Update next start time for seamless playback
         this.nextStartTime = startTime + buffer.duration;
 
-        console.log(`[AudioStreamPlayer] Scheduled playback at ${startTime.toFixed(2)}s, next at ${this.nextStartTime.toFixed(2)}s`);
+        console.log('[AudioPlayer] Chunk started successfully');
     }
 
     setOnEndCallback(callback) {
