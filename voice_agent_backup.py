@@ -610,7 +610,7 @@ def handle_stop_recognition(data):
 
 @socketio.on('chat')
 def handle_chat(data):
-    """Process chat message with function calling (Option 4)"""
+    """Process chat message and generate response"""
     session_id = data.get('session_id')
     message = data.get('message')
 
@@ -624,10 +624,10 @@ def handle_chat(data):
         # Add user message to history
         session.add_message('user', message)
 
-        # Build messages for LLM
+        # Build messages for LLM with order extraction
         system_prompt = session.get_system_prompt()
 
-        # Build menu context
+        # Add order extraction instruction with menu context
         menu_items_list = []
         menu = menu_data.get('menu', {})
         for category, items in menu.items():
@@ -642,175 +642,295 @@ def handle_chat(data):
                         'id': item.get('id', '')
                     })
 
-        # State-aware function calling prompt
+        # State-aware order extraction prompt
         if session.state == SessionState.ORDERING:
-            function_calling_prompt = f"""
-IMPORTANT: When customer orders items, you MUST do TWO things:
-
-1. FIRST: Respond conversationally to acknowledge their order (e.g., "好的，我帮您点一份麻婆豆腐")
-2. THEN: Call the update_order function with the structured order details
-
-You MUST do BOTH steps in your response.
+            order_extraction_prompt = f"""
+IMPORTANT: When customer orders items, extract them and format as JSON.
 
 Available menu items:
 {chr(10).join([f"- {item['en']} / {item['zh']} / {item['yue']}: ${item['price']}" for item in menu_items_list[:15]])}
 
-Current order ({len(session.current_order)} items):
-{chr(10).join([f"- {item['name']} x{item['quantity']}" for item in session.current_order]) if session.current_order else "No items yet"}
+When customer mentions ordering items, add this at the END of your response:
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "Item Name", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+Actions:
+- "add": Customer orders new items
+- "remove": Customer cancels items (e.g., "cancel the soup", "remove the chicken", "我不想要...")
+- "modify": Customer changes quantity (e.g., "make that two", "change to three")
+
+CRITICAL: You MUST generate ORDER_UPDATE for ALL order changes, including removals!
+
+Examples:
+Customer: "I'll have the Kung Pao Chicken"
+Response: Great choice! One Kung Pao Chicken coming up.
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "Kung Pao Chicken", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+Customer: "我要宫保鸡丁"
+Response: 好的！一份宫保鸡丁。
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "宫保鸡丁", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+Customer: "Actually, make that two"
+Response: No problem! I'll change that to two orders.
+
+ORDER_UPDATE: {{"action": "modify", "items": [{{"name": "Kung Pao Chicken", "quantity": 2, "price": 14.99, "modifications": []}}]}}
+
+Customer: "Cancel the soup" or "我不想要汤了"
+Response: Sure, I'll remove the soup from your order.
+
+ORDER_UPDATE: {{"action": "remove", "items": [{{"name": "Spring Rolls", "quantity": 1, "price": 8.99, "modifications": []}}]}}
+
+Customer: "我不想要宫保鸡丁，给我两瓶青岛啤酒"
+Response: 好的，我将为您取消宫保鸡丁，并添加两瓶青岛啤酒。
+
+ORDER_UPDATE: {{"action": "remove", "items": [{{"name": "宫保鸡丁", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "青岛啤酒", "quantity": 2, "price": 5.99, "modifications": []}}]}}
 
 CRITICAL RULES:
-1. ONLY call update_order when customer EXPLICITLY orders items
-2. DO NOT call update_order when making recommendations or answering questions
-3. Customer must use ordering language like "我要...", "给我...", "I'll have...", "Can I get..."
-4. For removals, customer must use removal language like "取消...", "不想要...", "Cancel...", "Remove..."
-5. ALWAYS call update_order for removals
+1. ONLY include ORDER_UPDATE when customer EXPLICITLY orders/modifies/removes items
+2. DO NOT include ORDER_UPDATE when:
+   - Making recommendations (e.g., "我们有宫保鸡丁和回锅肉")
+   - Answering questions (e.g., "还有什么推荐吗？")
+   - General conversation
+3. Customer must use ordering language like:
+   - "我要..." (I want...)
+   - "给我..." (Give me...)
+   - "来一份..." (Bring me one...)
+   - "I'll have..."
+   - "Can I get..."
+4. Customer must use removal language like:
+   - "取消..." (Cancel...)
+   - "不想要..." (Don't want...)
+   - "去掉..." (Remove...)
+   - "Cancel..."
+   - "Remove..."
+5. If customer just asks "what do you recommend?" - DO NOT add items to order
+6. Only add items when customer explicitly confirms they want to order them
+7. ALWAYS generate ORDER_UPDATE for removals - this is critical!
+8. You can have multiple ORDER_UPDATE blocks in one response (e.g., one remove + one add)
 """
         elif session.state == SessionState.CONFIRMED:
-            confirmed_summary = '\n'.join([f"- {item['name']} x{item['quantity']}" for item in session.confirmed_items]) if session.confirmed_items else "No confirmed items"
+            # Build confirmed order summary
+            confirmed_summary = "No confirmed items"
+            if session.confirmed_items:
+                confirmed_items_list = []
+                for item in session.confirmed_items:
+                    confirmed_items_list.append(f"- {item['name']} x{item['quantity']} (${item['price']})")
+                confirmed_summary = '\n'.join(confirmed_items_list)
 
-            function_calling_prompt = f"""
+            order_extraction_prompt = f"""
 IMPORTANT: The order has been CONFIRMED. Customer can ONLY add MORE items.
 
-When customer orders NEW items, you MUST do TWO things:
-1. FIRST: Respond conversationally
-2. THEN: Call update_order function with action "add"
-
-You MUST do BOTH steps.
-
-Confirmed Order (LOCKED):
+Confirmed Order (LOCKED - cannot be modified or removed):
 {confirmed_summary}
 
 Available menu items:
-{chr(10).join([f"- {item['en']} / {item['zh']}: ${item['price']}" for item in menu_items_list[:15]])}
+{chr(10).join([f"- {item['en']} / {item['zh']} / {item['yue']}: ${item['price']}" for item in menu_items_list[:15]])}
 
-CRITICAL: ONLY use action "add". DO NOT use "modify" or "remove".
+Customer can:
+- Add MORE items (new orders)
+- Ask questions
+- Request service
+
+Customer CANNOT modify or remove confirmed items.
+
+If customer tries to modify/remove confirmed items, politely explain:
+- English: "Your order has been confirmed. I can add more items, but cannot modify the confirmed order. Would you like to add something else?"
+- Mandarin: "您的订单已确认。我可以添加更多菜品，但无法修改已确认的订单。您想添加其他菜品吗？"
+- Cantonese: "你嘅訂單已經確認咗。我可以加多啲嘢，但係唔可以改已經確認嘅訂單。你想加其他嘢嗎？"
+
+When customer orders NEW items, add this at the END of your response:
+
+ORDER_UPDATE: {{"action": "add", "items": [{{"name": "Item Name", "quantity": 1, "price": 14.99, "modifications": []}}]}}
+
+CRITICAL RULES:
+1. ONLY use action "add". DO NOT use "modify" or "remove" actions.
+2. ONLY include ORDER_UPDATE when customer EXPLICITLY orders items
+3. DO NOT include ORDER_UPDATE when:
+   - Making recommendations
+   - Answering questions
+   - General conversation
+4. Customer must use ordering language like "我要...", "给我...", "来一份...", "I'll have...", "Can I get..."
+5. If customer just asks "what do you recommend?" - DO NOT add items to order
 """
         else:
-            function_calling_prompt = ""
+            # Default prompt for other states
+            order_extraction_prompt = ""
 
         messages = [
-            {'role': 'system', 'content': system_prompt + '\n\n' + function_calling_prompt}
+            {'role': 'system', 'content': system_prompt + '\n\n' + order_extraction_prompt}
         ]
 
-        # Add conversation history
+        # Add recent conversation history
         for msg in session.conversation_history[-10:]:
             messages.append({
                 'role': msg['role'],
                 'content': msg['content']
             })
 
-        # Start performance tracking
+        # Get AI response with streaming
+        print(f"[LLM] Starting streaming response generation")
+
+        # Start performance tracking for LLM
         perf_monitor.start_timer('llm')
         perf_monitor.mark_event('llm_start')
 
-        print(f"[LLM] Starting streaming with function calling (Option 4)")
+        response_generator = dashscope_client.chat(messages, model='qwen-turbo', stream=True)
+
+        # Stream LLM response and pipeline to TTS
+        full_response = ""
+        sentence_buffer = ""
+        order_update_detected = False  # Flag to stop TTS when ORDER_UPDATE is detected
 
         # Get voice for this table
         voice = voices_data.get('tables', {}).get(session.table_id, 'Cherry')
 
-        # Stream with function calling using OpenAI-compatible API
-        stream = openai_client.chat.completions.create(
-            model='qwen-plus',
-            messages=messages,
-            tools=[ORDER_UPDATE_TOOL],
-            tool_choice='auto',
-            stream=True
-        )
-
-        # Track streaming data
-        content_buffer = ""
-        sentence_buffer = ""
-        tool_call_buffer = {"id": None, "name": None, "arguments": ""}
-
-        # Notify client
+        # Notify client that response is starting
         emit('llm_started', {'session_id': session_id})
 
-        for chunk in stream:
-            delta = chunk.choices[0].delta
+        for chunk in response_generator:
+            if chunk.status_code == HTTPStatus.OK:
+                # Get the delta (incremental text), not the full accumulated text
+                chunk_text = chunk.output.choices[0].message.content
 
-            # Handle conversational text (stream to TTS)
-            if delta.content:
-                # Mark first LLM token
-                if not content_buffer:
+                # Mark first LLM token for performance tracking
+                if not full_response:
                     perf_monitor.mark_event('llm_first_chunk')
                     llm_first_token = perf_monitor.calculate_duration('llm_start', 'llm_first_chunk')
                     if llm_first_token:
                         print(f"[Perf] LLM first token in {llm_first_token:.0f}ms")
 
-                content_buffer += delta.content
-                sentence_buffer += delta.content
+                # For streaming, DashScope returns incremental deltas
+                # We need to extract only the new text, not accumulated text
+                if chunk_text:
+                    # Calculate the new text by comparing with what we already have
+                    if chunk_text.startswith(full_response):
+                        # This is accumulated text, extract only the delta
+                        delta_text = chunk_text[len(full_response):]
+                    else:
+                        # This is already a delta
+                        delta_text = chunk_text
 
-                # Send to client for display
-                emit('llm_chunk', {
-                    'session_id': session_id,
-                    'text': delta.content
-                })
+                    if delta_text:
+                        full_response += delta_text
 
-                # Check for sentence ending
-                if has_sentence_ending(sentence_buffer):
-                    sentence_to_synthesize = sentence_buffer.strip()[:500]
+                        # Check if ORDER_UPDATE appears in the new text
+                        if 'ORDER_UPDATE:' in delta_text or 'ORDER_UPDATE:' in sentence_buffer + delta_text:
+                            if not order_update_detected:
+                                print(f"[LLM→TTS] ORDER_UPDATE detected, stopping TTS streaming")
+                                order_update_detected = True
 
-                    print(f"[LLM→TTS] Streaming sentence: {sentence_to_synthesize[:50]}...")
+                                # If there's text before ORDER_UPDATE in the buffer, send it to TTS
+                                if sentence_buffer and 'ORDER_UPDATE:' not in sentence_buffer:
+                                    # Find where ORDER_UPDATE starts in the combined text
+                                    combined = sentence_buffer + delta_text
+                                    order_idx = combined.find('ORDER_UPDATE:')
+                                    if order_idx > 0:
+                                        # Send the text before ORDER_UPDATE to TTS
+                                        text_before_order = combined[:order_idx].strip()
+                                        if text_before_order:
+                                            print(f"[LLM→TTS] Sending final text before ORDER_UPDATE: {text_before_order[:50]}...")
+                                            emit('synthesis_started', {'session_id': session_id})
 
-                    # Mark TTS start
-                    perf_monitor.mark_event('tts_start')
+                                            try:
+                                                chunk_count = 0
+                                                for audio_chunk in dashscope_client.synthesize(
+                                                    text_before_order[:500],
+                                                    voice=voice,
+                                                    language_type='Auto',
+                                                    stream=True
+                                                ):
+                                                    chunk_count += 1
+                                                    emit('audio_chunk', {
+                                                        'session_id': session_id,
+                                                        'chunk_type': audio_chunk['type'],
+                                                        'audio_data': audio_chunk['data'],
+                                                        'chunk_number': chunk_count,
+                                                        'is_final': False
+                                                    })
 
-                    # Notify TTS starting
-                    emit('synthesis_started', {'session_id': session_id})
+                                                emit('audio_chunk', {
+                                                    'session_id': session_id,
+                                                    'is_final': True
+                                                })
+                                                print(f"[TTS] Final text streaming complete: {chunk_count} chunks sent")
+                                            except Exception as e:
+                                                print(f"[TTS] Streaming error: {e}")
 
-                    # Stream to TTS
-                    try:
-                        first_audio_chunk = True
-                        chunk_count = 0
-                        for audio_chunk in dashscope_client.synthesize(
-                            sentence_to_synthesize,
-                            voice=voice,
-                            language_type='Auto',
-                            stream=True
-                        ):
-                            if first_audio_chunk:
-                                perf_monitor.mark_event('first_audio')
-                                first_audio_time = perf_monitor.calculate_duration('tts_start', 'first_audio')
-                                if first_audio_time:
-                                    print(f"[Perf] First audio in {first_audio_time:.0f}ms")
-                                first_audio_chunk = False
+                                sentence_buffer = ""
+                            # Continue collecting for order parsing, but don't send to TTS
+                            continue
 
-                            chunk_count += 1
-                            emit('audio_chunk', {
+                        # Only process for TTS if ORDER_UPDATE hasn't been detected
+                        if not order_update_detected:
+                            sentence_buffer += delta_text
+
+                            # Send chunk to client for display (optional)
+                            emit('llm_chunk', {
                                 'session_id': session_id,
-                                'chunk_type': audio_chunk['type'],
-                                'audio_data': audio_chunk['data'],
-                                'chunk_number': chunk_count,
-                                'is_final': False
+                                'text': delta_text
                             })
 
-                        # Send final marker
-                        emit('audio_chunk', {
-                            'session_id': session_id,
-                            'is_final': True
-                        })
-                        print(f"[TTS] Sentence streaming complete: {chunk_count} chunks sent")
+                            # Check if we have a complete sentence or phrase
+                            if has_sentence_ending(sentence_buffer):
+                                # Limit sentence length to 500 chars (DashScope limit is 600)
+                                sentence_to_synthesize = sentence_buffer.strip()[:500]
 
-                    except Exception as e:
-                        print(f"[TTS] Streaming error: {e}")
+                                print(f"[LLM→TTS] Sentence complete ({len(sentence_to_synthesize)} chars), streaming to TTS: {sentence_to_synthesize[:50]}...")
 
-                    sentence_buffer = ""
+                                # Mark TTS start for performance tracking
+                                perf_monitor.mark_event('tts_start')
 
-            # Handle tool calls (for order updates)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    if tc.id:
-                        tool_call_buffer["id"] = tc.id
-                    if tc.function.name:
-                        tool_call_buffer["name"] = tc.function.name
-                    if tc.function.arguments:
-                        tool_call_buffer["arguments"] += tc.function.arguments
+                                # Stream this sentence to TTS immediately
+                                emit('synthesis_started', {'session_id': session_id})
 
-        # Process any remaining sentence
+                                try:
+                                    first_audio_chunk = True
+                                    chunk_count = 0
+                                    for audio_chunk in dashscope_client.synthesize(
+                                        sentence_to_synthesize,
+                                        voice=voice,
+                                        language_type='Auto',
+                                        stream=True
+                                    ):
+                                        # Mark first audio for performance tracking
+                                        if first_audio_chunk:
+                                            perf_monitor.mark_event('first_audio')
+                                            first_audio_time = perf_monitor.calculate_duration('tts_start', 'first_audio')
+                                            if first_audio_time:
+                                                print(f"[Perf] First audio in {first_audio_time:.0f}ms")
+                                            first_audio_chunk = False
+
+                                        chunk_count += 1
+                                        emit('audio_chunk', {
+                                            'session_id': session_id,
+                                            'chunk_type': audio_chunk['type'],
+                                            'audio_data': audio_chunk['data'],
+                                            'chunk_number': chunk_count,
+                                            'is_final': False
+                                        })
+
+                                    # Send final marker for this sentence
+                                    emit('audio_chunk', {
+                                        'session_id': session_id,
+                                        'is_final': True
+                                    })
+                                    print(f"[TTS] Sentence streaming complete: {chunk_count} chunks sent")
+
+                                except Exception as e:
+                                    print(f"[TTS] Streaming error: {e}")
+
+                                sentence_buffer = ""
+
+        # Handle any remaining text in buffer
         if sentence_buffer.strip():
+            # Limit sentence length to 500 chars (DashScope limit is 600)
             final_sentence = sentence_buffer.strip()[:500]
-            print(f"[LLM→TTS] Final sentence: {final_sentence[:50]}...")
 
+            print(f"[LLM→TTS] Final sentence ({len(final_sentence)} chars), streaming to TTS: {final_sentence[:50]}...")
             emit('synthesis_started', {'session_id': session_id})
 
             try:
@@ -830,6 +950,7 @@ CRITICAL: ONLY use action "add". DO NOT use "modify" or "remove".
                         'is_final': False
                     })
 
+                # Send final marker
                 emit('audio_chunk', {
                     'session_id': session_id,
                     'is_final': True
@@ -839,83 +960,146 @@ CRITICAL: ONLY use action "add". DO NOT use "modify" or "remove".
             except Exception as e:
                 print(f"[TTS] Streaming error: {e}")
 
-        # Process tool call if present
-        if tool_call_buffer["name"]:
-            print(f"[Function Call] {tool_call_buffer['name']}")
+        # Send final audio marker
+        emit('audio_chunk', {
+            'session_id': session_id,
+            'is_final': True
+        })
 
+        # End LLM timer
+        perf_monitor.end_timer('llm')
+
+        # Record this request and send metrics to client
+        perf_monitor.record_request()
+        metrics = perf_monitor.get_metrics_for_client()
+        emit('performance_metrics', {
+            'session_id': session_id,
+            'metrics': metrics
+        })
+
+        print(f"[LLM] Complete response: {full_response[:100]}...")
+
+        # Parse order updates from full response
+        clean_response = full_response
+
+        if 'ORDER_UPDATE:' in full_response:
+            parts = full_response.split('ORDER_UPDATE:')
+            clean_response = parts[0].strip()
             try:
-                arguments = json.loads(tool_call_buffer["arguments"])
+                import json
+                # Extract only the JSON object, ignoring any extra text after
+                order_text = parts[1].strip()
 
-                if tool_call_buffer["name"] == "update_order":
-                    action = arguments.get("action")
-                    items = arguments.get("items", [])
+                # Find the JSON object boundaries
+                start_idx = order_text.find('{')
+                if start_idx == -1:
+                    raise ValueError("No JSON object found after ORDER_UPDATE:")
 
-                    print(f"[Order] Action: {action}, Items: {len(items)}")
+                # Find matching closing brace
+                brace_count = 0
+                end_idx = -1
+                for i in range(start_idx, len(order_text)):
+                    if order_text[i] == '{':
+                        brace_count += 1
+                    elif order_text[i] == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end_idx = i + 1
+                            break
 
-                    # Process order update based on session state
-                    if session.state == SessionState.CONFIRMED:
-                        # Only allow "add" in CONFIRMED state
-                        if action in ['modify', 'remove']:
-                            print(f"[Order] Rejected {action} in CONFIRMED state")
-                        elif action == 'add':
-                            for item in items:
+                if end_idx == -1:
+                    raise ValueError("No matching closing brace found in ORDER_UPDATE JSON")
+
+                order_json = order_text[start_idx:end_idx]
+                print(f"[Order] Extracted JSON: {order_json}")
+                order_update = json.loads(order_json)
+
+                # Process order update based on session state
+                if session.state == SessionState.CONFIRMED:
+                    # In CONFIRMED state, only allow "add" actions
+                    if order_update['action'] in ['modify', 'remove']:
+                        print(f"[Order] Rejected {order_update['action']} in CONFIRMED state")
+                        # Don't process the order update, LLM should have refused
+                        # But if it slipped through, ignore it
+                    elif order_update['action'] == 'add':
+                        for item in order_update['items']:
+                            session.current_order.append(item)
+                            print(f"[Order] Added (CONFIRMED state): {item['name']} x{item['quantity']} - ${item['price']}")
+
+                elif session.state == SessionState.ORDERING:
+                    # In ORDERING state, allow all actions
+                    if order_update['action'] == 'add':
+                        for item in order_update['items']:
+                            session.current_order.append(item)
+                            print(f"[Order] Added: {item['name']} x{item['quantity']} - ${item['price']}")
+
+                    elif order_update['action'] == 'remove':
+                        for item in order_update['items']:
+                            # Remove matching items (match by name in any language)
+                            item_name = item['name'].lower()
+                            session.current_order = [
+                                o for o in session.current_order
+                                if o['name'].lower() != item_name
+                            ]
+                            print(f"[Order] Removed: {item['name']}")
+
+                    elif order_update['action'] == 'modify':
+                        for item in order_update['items']:
+                            # Find and update item quantity
+                            item_name = item['name'].lower()
+                            found = False
+                            for o in session.current_order:
+                                if o['name'].lower() == item_name:
+                                    o['quantity'] = item['quantity']
+                                    found = True
+                                    print(f"[Order] Modified: {item['name']} -> x{item['quantity']}")
+                                    break
+
+                            # If not found, treat as add
+                            if not found:
                                 session.current_order.append(item)
-                                print(f"[Order] Added (CONFIRMED state): {item['name']} x{item['quantity']} - ${item['price']}")
+                                print(f"[Order] Added (via modify): {item['name']} x{item['quantity']}")
 
-                    elif session.state == SessionState.ORDERING:
-                        # Allow all actions in ORDERING state
-                        if action == 'add':
-                            for item in items:
-                                session.current_order.append(item)
-                                print(f"[Order] Added: {item['name']} x{item['quantity']} - ${item['price']}")
+                # Calculate order totals (include both confirmed and current items)
+                all_items = session.confirmed_items + session.current_order
+                subtotal = sum(item['price'] * item['quantity'] for item in all_items)
+                tax = subtotal * 0.09
+                total = subtotal + tax
 
-                        elif action == 'remove':
-                            for item in items:
-                                item_name = item['name'].lower()
-                                session.current_order = [
-                                    o for o in session.current_order
-                                    if o['name'].lower() != item_name
-                                ]
-                                print(f"[Order] Removed: {item['name']}")
+                # Send order update to client
+                emit('order_updated', {
+                    'session_id': session_id,
+                    'confirmed_items': session.confirmed_items,
+                    'current_order': session.current_order,
+                    'action': order_update['action'],
+                    'subtotal': round(subtotal, 2),
+                    'tax': round(tax, 2),
+                    'total': round(total, 2)
+                })
 
-                        elif action == 'modify':
-                            for item in items:
-                                item_name = item['name'].lower()
-                                found = False
-                                for o in session.current_order:
-                                    if o['name'].lower() == item_name:
-                                        o['quantity'] = item['quantity']
-                                        found = True
-                                        print(f"[Order] Modified: {item['name']} -> x{item['quantity']}")
-                                        break
-
-                                if not found:
-                                    session.current_order.append(item)
-                                    print(f"[Order] Added (via modify): {item['name']} x{item['quantity']}")
-
-                    # Calculate totals
-                    all_items = session.confirmed_items + session.current_order
-                    subtotal = sum(item['price'] * item['quantity'] for item in all_items)
-                    tax = subtotal * 0.09
-                    total = subtotal + tax
-
-                    # Send order update to client
-                    emit('order_updated', {
-                        'session_id': session_id,
-                        'confirmed_items': session.confirmed_items,
-                        'current_order': session.current_order,
-                        'action': action,
-                        'subtotal': round(subtotal, 2),
-                        'tax': round(tax, 2),
-                        'total': round(total, 2)
-                    })
-
-                    print(f"[Order] Total items: {len(all_items)}, Total: ${total:.2f}")
+                print(f"[Order] Total items: {len(all_items)}, Total: ${total:.2f}")
 
             except Exception as e:
-                print(f"[Order] Error processing tool call: {e}")
+                print(f"[Order] Failed to parse order update: {e}")
                 import traceback
                 traceback.print_exc()
+
+        # If clean_response is empty (ORDER_UPDATE at beginning), use a default acknowledgment
+        if not clean_response or not clean_response.strip():
+            # Determine language from last user message
+            last_user_msg = next((msg['content'] for msg in reversed(session.conversation_history) if msg['role'] == 'user'), '')
+
+            # Simple language detection based on character ranges
+            if any('\u4e00' <= c <= '\u9fff' for c in last_user_msg):
+                # Chinese characters detected
+                if any(c in '係咩嘅啲' for c in last_user_msg):
+                    clean_response = "好嘅！"  # Cantonese
+                else:
+                    clean_response = "好的！"  # Mandarin
+            else:
+                clean_response = "Got it!"  # English
+
+            print(f"[Order] Empty response, using default: {clean_response}")
 
         # Check for closing remark and handle state transition
         if session._is_closing_remark(message):
@@ -962,11 +1146,12 @@ CRITICAL: ONLY use action "add". DO NOT use "modify" or "remove".
                     tax = subtotal * 0.09
                     total = subtotal + tax
 
-                    # Send order update
+                    # Notify client of order update
                     emit('order_updated', {
                         'session_id': session_id,
                         'confirmed_items': session.confirmed_items,
                         'current_order': [],
+                        'action': 'confirm',
                         'subtotal': round(subtotal, 2),
                         'tax': round(tax, 2),
                         'total': round(total, 2)
@@ -979,24 +1164,12 @@ CRITICAL: ONLY use action "add". DO NOT use "modify" or "remove".
                         'show_stop_button': True
                     })
 
-        # End LLM timer
-        perf_monitor.end_timer('llm')
+        # Add AI response to history
+        session.add_message('assistant', clean_response)
 
-        # Record metrics
-        perf_monitor.record_request()
-        metrics = perf_monitor.get_metrics_for_client()
-        emit('performance_metrics', {
-            'session_id': session_id,
-            'metrics': metrics
-        })
-
-        # Add assistant response to history
-        session.add_message('assistant', content_buffer)
-
-        # Send chat response
         emit('chat_response', {
             'session_id': session_id,
-            'response': content_buffer,
+            'response': clean_response,
             'table_name': session.table_name
         })
 
