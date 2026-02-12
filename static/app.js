@@ -251,20 +251,25 @@ class VoiceAgent {
         });
 
         // TTS synthesis started (streaming mode)
-        this.socket.on('synthesis_started', (data) => {
+        this.socket.on('synthesis_started', async (data) => {
             if (data.session_id === this.sessionId) {
                 console.log('[TTS] Streaming synthesis started');
                 this.isSpeaking = true;
                 this.updateStatus('speaking', '🔊', 'Speaking');
 
-                // Initialize streaming audio player
+                // Initialize streaming audio player if not already done
                 if (!this.audioStreamPlayer) {
+                    console.log('[Audio] Creating AudioStreamPlayer (fallback)');
                     this.audioStreamPlayer = new AudioStreamPlayer();
+                    await this.audioStreamPlayer.init();
                     this.audioStreamPlayer.setOnEndCallback(() => {
                         console.log('[TTS] All audio chunks played');
                         this.isSpeaking = false;
                         this.updateStatus('listening', '◉', 'Listening');
                     });
+                } else {
+                    // Ensure AudioContext is initialized and resumed
+                    await this.audioStreamPlayer.init();
                 }
                 this.audioStreamPlayer.reset();
             }
@@ -376,6 +381,18 @@ class VoiceAgent {
 
     async handleStartOrder() {
         console.log('User tapped button...');
+
+        // Initialize AudioStreamPlayer during user interaction to satisfy browser autoplay policy
+        if (!this.audioStreamPlayer) {
+            console.log('[Audio] Initializing AudioStreamPlayer during user interaction');
+            this.audioStreamPlayer = new AudioStreamPlayer();
+            await this.audioStreamPlayer.init();
+            this.audioStreamPlayer.setOnEndCallback(() => {
+                console.log('[TTS] All audio chunks played');
+                this.isSpeaking = false;
+                this.updateStatus('listening', '◉', 'Listening');
+            });
+        }
 
         if (this.sessionState === 'confirmed_passive' || this.sessionState === 'confirmed_stopped') {
             // Resume active conversation from passive/stopped state
