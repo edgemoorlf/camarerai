@@ -314,8 +314,6 @@ class VoiceAgent {
                 }
             }
         });
-            }
-        });
 
         // TTS synthesis complete (non-streaming mode - fallback)
         this.socket.on('synthesis_complete', (data) => {

@@ -1,8 +1,10 @@
 # CamareraI - Voice Ordering System
 
-**Status:** POC - Client-Side Speaker Verification for Barge-in Filtering
-**Last Updated:** 2026-02-05
-**Branch:** `experiment/speaker-id-fingerprint`
+**Status:** POC - Performance Optimization Focus
+**Last Updated:** 2026-03-07
+**Branch:** `feature/performance-optimization`
+
+> **Note:** Speaker verification is available on `experiment/speaker-id-fingerprint` branch but deferred for now. Performance is the current priority.
 
 ---
 
@@ -10,21 +12,30 @@
 
 **Active File:** `voice_agent.py`
 **Status:** ✅ Ready to test
-**Architecture:** WebSocket-based streaming ASR with client-side speaker verification
+**Architecture:** WebSocket-based streaming ASR with end-to-end streaming (ASR → LLM → TTS)
+
+### 🎯 Current Focus: Performance Optimization
+
+**Problem:** First audio latency (~400-600ms) is too slow for snappy demos.
+**Target:** Reduce to <300ms for natural conversation feel.
+
+**Current Metrics:**
+- LLM first token: ~200-300ms
+- First audio: ~400-600ms
+- Total response: ~1600ms
+
+See [docs/eng/CURRENT_STATUS.md](docs/eng/CURRENT_STATUS.md) for detailed optimization plan.
 
 ### What Works ✅
 - ✅ **Touch to Order button** - Large button to start ordering (browser security compliant)
-- ✅ **Speaker enrollment** - 2.5s audio collection for voice fingerprinting
-- ✅ **Client-side verification** - Zero-latency speaker verification (5ms)
-- ✅ **Barge-in filtering** - Only enrolled customer can interrupt AI
-- ✅ **Always-listening mode** - Microphone streams continuously after enrollment
+- ✅ **Always-listening mode** - Microphone streams continuously after button tap
 - ✅ **Natural conversation** - Speak naturally, AI responds when you finish
 - ✅ **Language matching** - AI responds in your language (Chinese/English)
 - ✅ **Minimal UI** - Clean status indicator + order summary only
 - ✅ **Real-time voice transcription** (streaming)
 - ✅ **LLM conversation** (English, Mandarin, Cantonese)
-- ✅ **Text-to-speech responses**
-- ✅ **Session management**
+- ✅ **Text-to-speech responses** (streaming)
+- ✅ **Session management** - Full lifecycle with persistence, "Tap for Anything"
 - ✅ **Closing remark detection** - Detects "thank you", "谢谢", "唔該" and resets
 - ✅ **Session boundaries** - Clean reset between customers
 - ✅ **Order parsing** - Extracts items from conversation in any language
@@ -32,6 +43,8 @@
 - ✅ **Order calculations** - Automatic subtotal, tax (9%), and total
 - ✅ **Order modifications** - Add, remove, or change quantities
 - ✅ **Real-time updates** - Order panel updates as items are added
+- ✅ **Performance monitoring** - Real-time metrics in UI
+- ✅ **Barge-in** - SPACE key to interrupt AI (voice filtering on separate branch)
 
 ### What's Not Implemented Yet ⬜
 - ❌ Context management (full conversation history)
@@ -102,40 +115,21 @@ Server also available on network:
 
 ---
 
-## 🎤 Speaker Verification
+## 🎤 Speaker Verification (Deferred)
 
-### Client-Side Voice Fingerprinting
+Speaker verification with client-side voice fingerprinting is implemented on the `experiment/speaker-id-fingerprint` branch but **deferred** for now.
 
-**Architecture:**
-```
-Browser (Client-Side Only)
-    ↓
-Enrollment: Extract voice features (F0, spectral centroid, ZCR, energy)
-    ↓
-Store features in memory
-    ↓
-Barge-in Detection: Extract features from incoming audio
-    ↓
-Compare with enrolled features (5ms)
-    ↓
-Similarity > 0.75? → Allow barge-in
-```
+**Why deferred?**
+- Performance (first audio latency) is the current blocker for demos
+- Speaker verification is a nice-to-have differentiator, not essential
+- Can be merged after performance is optimized
 
-**Performance:**
-- **Latency:** 5ms (vs 200ms with backend approach)
+**Quick info:**
+- **Latency:** 5ms (client-side) vs 116-416ms (backend)
 - **Accuracy:** 70-75% expected
-- **Network:** Zero calls for verification
-- **Privacy:** Audio never leaves browser
+- See [docs/eng/FINAL_RECOMMENDATION.md](docs/eng/FINAL_RECOMMENDATION.md) on that branch for full comparison
 
-**Features Extracted:**
-- F0 (Fundamental Frequency) - Pitch
-- Spectral Centroid - Voice brightness
-- Zero Crossing Rate - Noisiness
-- Energy Distribution - 8 frequency bands
-
-**Files:**
-- `static/speaker_fingerprint.js` - Feature extraction and comparison
-- `static/app.js` - Enrollment and verification integration
+**Current barge-in:** SPACE key only (no voice filtering)
 
 ---
 
@@ -145,9 +139,13 @@ Similarity > 0.75? → Allow barge-in
 
 ```
 voice_agent.py               # Main server (WebSocket + streaming ASR)
+config.py                    # Centralized configuration
+services/
+├── order_service.py         # Order processing logic
+└── llm_service.py           # LLM streaming with function calling
 dashscope_client.py          # DashScope API wrapper
+performance_monitor.py       # Real-time performance metrics
 test_all.py                  # Complete system check
-test_network.py              # Network diagnostics
 
 data/
 ├── menu.json                # Restaurant menu (multilingual)
@@ -156,12 +154,15 @@ data/
 └── voices.json              # Voice configuration
 
 static/
-├── app.js                   # Always-listening WebSocket client + speaker verification
-├── speaker_fingerprint.js   # Client-side voice fingerprinting
+├── app.js                   # Always-listening WebSocket client
+├── audio_stream_player.js   # Streaming audio playback
+├── performance_monitor.js   # Performance metrics UI
 └── style.css                # Minimal UI styling
 
 templates/
-└── index.html               # Minimal UI (status + order summary + enrollment)
+└── index.html               # Minimal UI (status + order summary)
+
+# Note: speaker_fingerprint.js is on experiment/speaker-id-fingerprint branch
 ```
 
 ### Documentation
@@ -169,16 +170,19 @@ templates/
 ```
 README.md                    # This file - single source of truth
 CLAUDE.md                    # AI assistant guidelines
-CLIENT_SIDE_FINGERPRINT.md   # Speaker verification implementation guide
-FINAL_RECOMMENDATION.md      # Comparison: client-side vs backend approach
+docs/eng/CURRENT_STATUS.md   # Latest status & performance optimization plan
 docs/
 ├── PLAN.md                  # Overall project plan and vision
 ├── eng/
+│   ├── CURRENT_STATUS.md    # Current status & next steps ⭐
 │   ├── IMPLEMENTATION_PLAN.md     # Technical implementation plan
-│   ├── IMPLEMENTATION_STATUS.md   # Current implementation status
+│   ├── IMPLEMENTATION_STATUS.md   # Implementation status (older)
 │   └── TEST_PLAN.md               # Comprehensive test plan
 └── prd/
     └── PRODUCT_DESIGN.md    # Product design decisions
+
+# Speaker verification docs (on separate branch):
+# CLIENT_SIDE_FINGERPRINT.md, FINAL_RECOMMENDATION.md
 ```
 
 ---
@@ -232,31 +236,6 @@ python3 voice_agent.py
 - Check browser console for errors (F12)
 - Try refreshing page and tapping button again
 
-### Issue 4: Speaker Verification Not Working
-
-**Symptoms:**
-- Customer voice not triggering barge-in
-- Other voices triggering barge-in
-
-**Debug:**
-```javascript
-// Check console for:
-[Enrollment] ✓ Success - speaker enrolled
-[Barge-in] ✓ Verified (similarity: 0.XXX)  // Customer
-[Barge-in] ✗ Rejected (similarity: 0.XXX)  // Others
-```
-
-**Fix:**
-```javascript
-// Adjust threshold in static/app.js
-// Line ~16:
-this.speakerVerifier = new ClientSpeakerVerifier(0.75);
-
-// Too strict (customer rejected)? Lower to 0.70
-// Too lenient (others accepted)? Raise to 0.80
-```
-
----
 
 ## 🎤 How It Works
 
@@ -272,16 +251,13 @@ DashScope Streaming ASR (Paraformer)
 Flask-SocketIO Server
     ↓ Auto-send to LLM on sentence end
 DashScope LLM (Qwen)
-    ↓ Generate response
+    ↓ Stream response (sentence-by-sentence)
 DashScope TTS (Sambert)
-    ↓ Synthesize speech
-Browser (auto-play audio)
-    ↓
-Client-Side Speaker Verification (during AI speech)
-    ↓ Extract features from incoming audio
-    ↓ Compare with enrolled speaker
-    ↓ If match: Trigger barge-in
+    ↓ Stream audio chunks
+Browser (streaming audio playback)
 ```
+
+**End-to-End Streaming:** ASR → LLM → TTS streams continuously for low latency.
 
 ### Flow
 
@@ -293,46 +269,34 @@ Client-Side Speaker Verification (during AI speech)
 2. **User taps button**
    - Browser requests microphone permission (user gesture present)
    - Button disappears
-   - Enrollment prompt appears
-
-3. **Enrollment (2.5 seconds)**
-   - User says: "Hello, I'd like to order"
-   - Client-side feature extraction (F0, spectral centroid, ZCR, energy)
-   - Features stored in memory
-   - Enrollment prompt disappears
    - Status indicator appears showing "Listening"
 
-4. **User speaks**
+3. **User speaks**
    - Audio streams to server in real-time
    - Partial transcription updates (visible in debug panel)
    - Sentence-end detection triggers auto-response
 
-5. **AI responds**
+4. **AI responds (Streaming)**
    - Status changes to "Thinking"
-   - LLM generates response in same language
-   - TTS synthesizes audio
+   - LLM generates response in same language (streaming)
+   - TTS synthesizes audio (sentence-by-sentence streaming)
    - Status changes to "Speaking"
-   - Audio plays automatically
+   - Audio plays automatically as chunks arrive
 
-6. **Barge-in filtering (NEW)**
-   - Voice detected (volume > 0.02)
-   - Extract features from audio chunk (5ms)
-   - Compare with enrolled speaker
-   - If similarity > 0.75: Allow barge-in
-   - If similarity < 0.75: Ignore (not customer)
+5. **Barge-in**
+   - Press SPACE to interrupt AI
+   - (Voice-based barge-in with speaker filtering on separate branch)
 
-7. **Session ends**
+6. **Session ends**
    - User says closing remark ("thank you", "谢谢", "唔該")
    - AI responds with confirmation
-   - After AI finishes speaking:
-     - Microphone stops
-     - Status area hides
-     - "Touch to Order" button reappears
-   - Ready for next customer
+   - Order persists on screen
+   - "Tap for Anything" button appears
+   - Tap button to add more items, or manually reset for next customer
 
 **Latency:**
 - ASR: 0.5-1 second (real-time streaming)
-- Speaker verification: 5ms (client-side)
+- First audio: ~400-600ms (target: <300ms)
 
 ---
 
@@ -355,32 +319,7 @@ Expected output:
 🎉 Your system is ready!
 ```
 
-### Test 2: Speaker Verification
-
-**Enrollment:**
-```
-1. Tap "Touch to Order"
-2. Say: "Hello, I'd like to order"
-3. Check console for: [Speaker] Enrolled: {f0: XXX, ...}
-```
-
-**Barge-in (Customer):**
-```
-1. Order an item
-2. While AI speaks, interrupt
-3. Expected: AI stops immediately
-4. Console: [Barge-in] ✓ Verified (similarity: 0.XXX)
-```
-
-**Barge-in (Other Person):**
-```
-1. Order an item
-2. While AI speaks, have another person speak
-3. Expected: AI does NOT stop
-4. Console: [Barge-in] ✗ Rejected (similarity: 0.XXX)
-```
-
-### Test 3: Conversation Flow
+### Test 2: Conversation Flow
 
 **English:**
 ```
@@ -448,18 +387,21 @@ Edit `data/menu.json` to customize:
 
 ## 🐛 Known Issues
 
-1. **Speaker Verification Accuracy** - 70-75% expected
-   - May have false positives (~25-30%)
-   - Threshold tuning required based on testing
-   - Can be improved with more features (MFCC, formants)
+1. **Performance - First Audio Latency** - ~400-600ms current, target <300ms
+   - Connection establishment adds latency
+   - See [docs/eng/CURRENT_STATUS.md](docs/eng/CURRENT_STATUS.md) for optimization plan
+   - Priority fix for demo readiness
 
-2. **No Persistence** - Enrollment lost on page refresh
-   - Can be added with localStorage
-   - Not critical for POC
+2. **No Speaker Verification** - On separate branch (`experiment/speaker-id-fingerprint`)
+   - Barge-in currently SPACE key only
+   - Voice-based filtering deferred until performance is optimized
+   - See [docs/eng/FINAL_RECOMMENDATION.md](docs/eng/FINAL_RECOMMENDATION.md) for comparison
 
-3. **Browser Compatibility** - Requires Web Audio API
-   - Works on modern browsers (Chrome, Firefox, Safari)
-   - May not work on older browsers
+3. **Context Management** - Full conversation history not maintained
+   - Can be improved for better multi-turn conversations
+
+4. **No Fuzzy Item Matching** - "Chicken" doesn't match "Kung Pao Chicken"
+   - Exact menu item names work best
 
 ---
 
@@ -473,28 +415,30 @@ Edit `data/menu.json` to customize:
 - [x] Calculate subtotal, tax, and total
 - [x] Show quantities and prices
 - [x] Clear order on session reset
-- [x] Client-side speaker verification for barge-in filtering
+- [x] Session management with persistence ("Tap for Anything")
 
-### Phase 6: Polish & Demo 📋 CURRENT
-- [ ] Test speaker verification accuracy
-- [ ] Tune threshold based on results
-- [ ] Fine-tune response latency
-- [ ] Improve sentence-end detection
+### Phase 6: Performance Optimization 🔄 CURRENT (Priority)
+- [ ] Profile streaming pipeline (ASR → LLM → TTS)
+- [ ] Implement connection pre-warming
+- [ ] Reduce first audio latency to <300ms
 - [ ] Test various conversation scenarios
 - [ ] Handle edge cases gracefully
 - [ ] Create demo script
 
-### Phase 7: Advanced Features 📋 PLANNED
-- [ ] Add more voice features (MFCC, formants)
-- [ ] Optimize FFT (use Web Audio AnalyserNode)
-- [ ] Add enrollment persistence (localStorage)
+### Phase 7: Speaker Verification 📋 DEFERRED
+- [ ] Merge from `experiment/speaker-id-fingerprint` branch
+- [ ] Test accuracy and tune threshold
+- [ ] Optional: Add MFCC/formant features for better accuracy
+- [ ] Optional: Enrollment persistence with localStorage
+
+### Phase 8: Advanced Features 📋 PLANNED
 - [ ] Multi-speaker support
 - [ ] Payment integration
+- [ ] Kitchen integration
 
-### Phase 8: Production Ready 📋 PLANNED
+### Phase 9: Production Ready 📋 PLANNED
 - [ ] Deploy to cloud
-- [ ] Performance optimization
-- [ ] Error handling
+- [ ] Error handling improvements
 - [ ] Analytics dashboard
 - [ ] Multi-restaurant support
 
@@ -503,32 +447,33 @@ Edit `data/menu.json` to customize:
 ## 🤝 Contributing
 
 This is a POC project. Current focus:
-1. Test client-side speaker verification
-2. Measure accuracy and tune threshold
-3. Improve features if needed
-4. Test conversation quality in all 3 languages
-5. Improve user experience
+1. **Performance optimization** - Reduce first audio latency to <300ms
+2. Profile streaming pipeline and identify bottlenecks
+3. Test conversation quality in all 3 languages
+4. Test edge cases that might cause delays
+5. Create demo script with fast response scenarios
+
+See [docs/eng/CURRENT_STATUS.md](docs/eng/CURRENT_STATUS.md) for detailed optimization options.
 
 ---
 
 ## 📝 Development Notes
 
-### Why Client-Side Speaker Verification?
+### Current Architecture
 
-**Problem with Backend Approach:**
-- resemblyzer processing: 16ms (fast)
-- Network latency: 100-400ms (slow)
-- Total: 116-416ms (too slow for real-time)
+**Refactored Structure (2026-02-11):**
+```
+config.py                    # All configuration
+services/
+  order_service.py          # Order processing logic
+  llm_service.py            # LLM streaming with function calling
+voice_agent.py              # Main server (reduced 20%)
+```
 
-**Solution: Client-Side:**
-- Feature extraction: 5ms
-- Network latency: 0ms
-- Total: 5ms (40x faster!)
-
-**Trade-off:**
-- Lower accuracy (70-75% vs 78%)
-- But speed is critical for barge-in
-- Acceptable for POC
+**Performance Monitoring:**
+- Real-time metrics tracked: LLM first token, TTS latency, total response time
+- Visual performance monitor in UI
+- Target: First audio <300ms
 
 ### Tech Stack
 
@@ -551,16 +496,17 @@ This is a POC project. Current focus:
 
 2. **Check documentation:**
    - This README (single source of truth)
-   - `CLIENT_SIDE_FINGERPRINT.md` (speaker verification details)
-   - `FINAL_RECOMMENDATION.md` (approach comparison)
+   - `docs/eng/CURRENT_STATUS.md` (latest status & optimization plan) ⭐
    - `docs/eng/TEST_PLAN.md` (comprehensive test plan)
+   - `CLIENT_SIDE_FINGERPRINT.md` (speaker verification - on other branch)
+   - `FINAL_RECOMMENDATION.md` (speaker verification comparison - on other branch)
 
 3. **Common issues:**
    - DNS resolution → Change DNS to 8.8.8.8
    - Missing packages → `pip install -r requirements.txt`
    - WebSocket errors → Restart server
    - No transcription → Check microphone permission
-   - Barge-in not working → Check console, tune threshold
+   - Slow responses → See performance optimization plan in CURRENT_STATUS.md
 
 ---
 
@@ -600,21 +546,21 @@ Click 🐛 button (bottom right) to see:
 - Table name
 - Transcription
 - AI response
+- Performance metrics (LLM first token, TTS latency)
 ```
 
 ### Touch to Order
 ```
 Tap the large blue button to start ordering
 - Requests microphone permission
-- Starts enrollment (2.5s)
-- Enables natural conversation with speaker verification
+- Starts listening immediately
+- Enables natural conversation
 ```
 
 ### Interrupt AI
 ```
-Press SPACE or start speaking while AI is talking
-- Only enrolled customer can interrupt
-- Others are filtered out
+Press SPACE while AI is talking to interrupt
+- (Voice-based filtering with speaker verification on separate branch)
 ```
 
 ### End Session
@@ -629,7 +575,8 @@ Button will reappear for next customer
 
 ---
 
-**Last Updated:** 2026-02-05
-**Version:** POC v0.6 (Client-Side Speaker Verification)
-**Status:** Ready for testing - Phase 5 complete, Phase 6 in progress
-**Branch:** `experiment/speaker-id-fingerprint`
+**Last Updated:** 2026-03-07
+**Version:** POC v0.7 (Performance Optimization Focus)
+**Status:** Phase 5 complete, Phase 6 in progress (Performance)
+**Branch:** `feature/performance-optimization`
+**Next:** Reduce first audio latency to <300ms
