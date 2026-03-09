@@ -534,22 +534,32 @@ def handle_start_recognition(data):
 
             # Connect to Gemini Live API (async)
             client_sid = request.sid  # Capture sid for use in thread
-            def connect_gemini():
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(gemini_live_service.connect(
-                        session_id=session_id,
-                        emit_func=lambda event, data: socketio.emit(event, data, room=client_sid),
-                        order_service=order_service,
-                        tools=[config.ORDER_UPDATE_TOOL]
-                    ))
-                except Exception as e:
-                    print(f"[Gemini] Connection error: {e}")
-                    socketio.emit('error', {'message': f'Gemini connection failed: {str(e)}'}, room=client_sid)
+
+            def run_gemini_session():
+                """Run the Gemini Live API session in a background thread"""
+                async def session_loop():
+                    try:
+                        # Connect
+                        await gemini_live_service.connect(
+                            session_id=session_id,
+                            emit_func=lambda event, data: socketio.emit(event, data, room=client_sid),
+                            order_service=order_service,
+                            tools=[config.ORDER_UPDATE_TOOL]
+                        )
+
+                        # Run the session (handles receiving audio and function calls)
+                        await gemini_live_service.run_session()
+
+                    except Exception as e:
+                        print(f"[Gemini] Session error: {e}")
+                        socketio.emit('error', {'message': f'Gemini session error: {str(e)}'}, room=client_sid)
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(session_loop())
 
             import threading
-            threading.Thread(target=connect_gemini, daemon=True).start()
+            threading.Thread(target=run_gemini_session, daemon=True).start()
 
             emit('recognition_started', {
                 'session_id': session_id,

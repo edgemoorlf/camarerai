@@ -7,8 +7,9 @@ Unified ASR + LLM + TTS in a single WebSocket connection
 import json
 import base64
 import asyncio
-import websockets
 from typing import Callable
+from google import genai
+from google.genai import types
 import config
 
 
@@ -20,8 +21,6 @@ class GeminiLiveService:
     - Sends audio chunks from client to Gemini
     - Receives audio chunks and function calls from Gemini
     - Handles order updates via function calling
-
-    Uses WebSocket connection to Google's Live API.
     """
 
     def __init__(self, perf_monitor=None):
@@ -35,7 +34,10 @@ class GeminiLiveService:
         self.model = config.GEMINI_LIVE_MODEL
         self.perf_monitor = perf_monitor
 
-        self.websocket = None
+        # Use the native Gemini client
+        self.client = genai.Client(api_key=self.api_key)
+        self.session = None
+
         self.session_id = None
         self.emit_func = None
         self.order_service = None
@@ -47,10 +49,13 @@ class GeminiLiveService:
         # State
         self.is_connected = False
         self.receive_task = None
+        self._chunk_count = 0
+        self.audio_queue = asyncio.Queue()
+        self.current_session = None
 
     async def connect(self, session_id: str, emit_func: Callable, order_service=None, tools=None):
         """
-        Establish WebSocket connection to Gemini Live API
+        Establish connection to Gemini Live API using native SDK
 
         Args:
             session_id: Unique session identifier
@@ -62,38 +67,31 @@ class GeminiLiveService:
         self.emit_func = emit_func
         self.order_service = order_service
 
-        # Build WebSocket URL
-        ws_url = (
-            f"wss://generativelanguage.googleapis.com/v1alpha/models/{self.model}:connect"
-            f"?key={self.api_key}"
-        )
-
-        # Prepare setup message with tools
-        setup_message = self._build_setup_message(tools)
-
         try:
-            print(f"[Gemini Live] Connecting to {self.model}...")
-            print(f"[Gemini Live] URL: wss://generativelanguage.googleapis.com/v1alpha/models/{self.model}:connect")
+            print(f"[Gemini Live] Connecting using model: {self.model}")
 
-            # Connect with timeout and proper headers
-            self.websocket = await websockets.connect(
-                ws_url,
-                ping_interval=20,
-                ping_timeout=10,
-                close_timeout=5
+            # Convert tools to Gemini format
+            gemini_tools = self._convert_tools_to_gemini_format(tools) if tools else None
+
+            # Create Live Connect config with audio output
+            config_obj = types.LiveConnectConfig(
+                response_modalities=['AUDIO'],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name='Aoede')
+                    )
+                ),
+                tools=gemini_tools
             )
-            self.is_connected = True
 
-            # Send setup configuration
-            await self.websocket.send(json.dumps(setup_message))
-
-            # Start receive loop
-            self.receive_task = asyncio.create_task(self._receive_loop())
+            # Store session for later use
+            self.session = self.client.aio.live.connect(model=self.model, config=config_obj)
 
             print(f"[Gemini Live] Connected successfully")
+            self.is_connected = True
 
             # Notify client
-            self.emit_func('gemini_connected', {'session_id': session_id})
+            emit_func('gemini_connected', {'session_id': session_id})
 
             if self.perf_monitor:
                 self.perf_monitor.mark_event('gemini_connected')
@@ -102,40 +100,6 @@ class GeminiLiveService:
             print(f"[Gemini Live] Connection failed: {e}")
             self.is_connected = False
             raise
-
-    def _build_setup_message(self, tools=None):
-        """
-        Build the setup message for Gemini Live API
-
-        Args:
-            tools: List of function definitions
-
-        Returns:
-            dict: Setup message for Gemini
-        """
-        setup = {
-            "setup": {
-                "model": f"models/{self.model}",
-                "generation_config": {
-                    "response_modalities": ["AUDIO"],  # Request audio output
-                    "speech_config": {
-                        "voice_config": {
-                            "prebuilt_voice_config": {
-                                "voice_name": "Aoede"  # Default voice
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        # Add tools if provided
-        if tools:
-            # Convert tools from OpenAI format to Gemini format
-            gemini_tools = self._convert_tools_to_gemini_format(tools)
-            setup["setup"]["tools"] = gemini_tools
-
-        return setup
 
     def _convert_tools_to_gemini_format(self, tools):
         """
@@ -152,140 +116,143 @@ class GeminiLiveService:
         for tool in tools:
             if tool.get("type") == "function":
                 func = tool.get("function", {})
-                gemini_tool = {
-                    "function_declarations": [
-                        {
-                            "name": func.get("name"),
-                            "description": func.get("description"),
-                            "parameters": func.get("parameters", {})
-                        }
+                gemini_tool = types.Tool(
+                    function_declarations=[
+                        types.FunctionDeclaration(
+                            name=func.get("name"),
+                            description=func.get("description"),
+                            parameters=func.get("parameters", {})
+                        )
                     ]
-                }
+                )
                 gemini_tools.append(gemini_tool)
 
         return gemini_tools
 
     async def send_audio(self, audio_data: bytes):
         """
-        Send audio chunk to Gemini Live API
+        Send audio chunk to Gemini Live API via queue
 
         Args:
             audio_data: Raw audio bytes (PCM 16-bit, 16kHz)
         """
-        if not self.is_connected or not self.websocket:
+        if not self.is_connected:
             return
 
         try:
-            # Encode audio as base64
-            audio_b64 = base64.b64encode(audio_data).decode('utf-8')
-
-            message = {
-                "realtime_input": {
-                    "media_chunks": [
-                        {
-                            "mime_type": "audio/pcm;rate=16000",
-                            "data": audio_b64
-                        }
-                    ]
-                }
-            }
-
-            await self.websocket.send(json.dumps(message))
-
+            # Put audio into the queue for the send loop to process
+            await self.audio_queue.put(audio_data)
         except Exception as e:
             print(f"[Gemini Live] Send audio error: {e}")
 
-    async def _receive_loop(self):
+    async def run_session(self):
         """
-        Main receive loop for Gemini Live API messages
-        Handles audio output and function calls
+        Main session loop - receives audio and function calls from Gemini
+        This should be run inside the async with session context
         """
+        self.current_session = None
         try:
-            async for message in self.websocket:
-                try:
-                    data = json.loads(message)
+            async with self.session as session:
+                self.current_session = session
+                # Start tasks for receiving and sending
+                receive_task = asyncio.create_task(self._receive_loop(session))
+                send_task = asyncio.create_task(self._send_loop(session))
 
-                    # Handle server content (audio output)
-                    if "serverContent" in data:
-                        await self._handle_server_content(data["serverContent"])
+                # Wait for either task to complete
+                done, pending = await asyncio.wait(
+                    [receive_task, send_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
 
-                    # Handle tool calls
-                    elif "toolCall" in data:
-                        await self._handle_tool_call(data["toolCall"])
+                # Cancel remaining tasks
+                for task in pending:
+                    task.cancel()
 
-                    # Handle setup complete
-                    elif "setupComplete" in data:
-                        print("[Gemini Live] Setup complete")
-
-                    # Handle errors
-                    elif "error" in data:
-                        print(f"[Gemini Live] Error: {data['error']}")
-
-                except json.JSONDecodeError:
-                    print(f"[Gemini Live] Invalid JSON: {message[:100]}")
-
-        except websockets.exceptions.ConnectionClosed:
-            print("[Gemini Live] Connection closed")
         except Exception as e:
-            print(f"[Gemini Live] Receive error: {e}")
+            print(f"[Gemini Live] Session error: {e}")
         finally:
             self.is_connected = False
+            self.current_session = None
 
-    async def _handle_server_content(self, content):
-        """
-        Handle server content (audio output from Gemini)
+    async def _receive_loop(self, session):
+        """Receive messages from Gemini"""
+        try:
+            async for message in session.receive():
+                    # Handle audio output
+                    if message.server_content and message.server_content.model_turn:
+                        for part in message.server_content.model_turn.parts:
+                            if part.inline_data:
+                                audio_bytes = part.inline_data.data
+                                self._chunk_count += 1
 
-        Args:
-            content: Server content dict
-        """
-        # Check for audio output
-        if "output" in content and "audio" in content["output"]:
-            audio_data = content["output"]["audio"]
+                                # Emit audio chunk to client
+                                self.emit_func('audio_chunk', {
+                                    'session_id': self.session_id,
+                                    'chunk_type': 'data',
+                                    'audio_data': audio_bytes,
+                                    'chunk_number': self._chunk_count,
+                                    'is_final': False
+                                })
 
-            if "data" in audio_data:
-                # Decode base64 audio
-                audio_bytes = base64.b64decode(audio_data["data"])
-                chunk_count = getattr(self, '_chunk_count', 0) + 1
-                self._chunk_count = chunk_count
+                                # Mark first audio for performance
+                                if self._chunk_count == 1 and self.perf_monitor:
+                                    self.perf_monitor.mark_event('first_audio')
+                                    first_audio_time = self.perf_monitor.calculate_duration(
+                                        'gemini_connected', 'first_audio'
+                                    )
+                                    if first_audio_time:
+                                        print(f"[Perf] Gemini first audio in {first_audio_time:.0f}ms")
 
-                # Emit audio chunk to client
-                self.emit_func('audio_chunk', {
-                    'session_id': self.session_id,
-                    'chunk_type': 'data',
-                    'audio_data': audio_bytes,
-                    'chunk_number': chunk_count,
-                    'is_final': False
-                })
+                            if part.text:
+                                print(f"[Gemini Live] Text: {part.text[:50]}...")
 
-                # Mark first audio for performance
-                if chunk_count == 1 and self.perf_monitor:
-                    self.perf_monitor.mark_event('first_audio')
-                    first_audio_time = self.perf_monitor.calculate_duration(
-                        'gemini_connected', 'first_audio'
-                    )
-                    if first_audio_time:
-                        print(f"[Perf] Gemini first audio in {first_audio_time:.0f}ms")
+                    # Handle turn completion
+                    if message.server_content and message.server_content.turn_complete:
+                        self.emit_func('audio_chunk', {
+                            'session_id': self.session_id,
+                            'is_final': True
+                        })
+                        print(f"[Gemini Live] Turn complete")
 
-        # Check for text (if any)
-        if "output" in content and "text" in content["output"]:
-            text = content["output"]["text"]
-            print(f"[Gemini Live] Text: {text[:50]}...")
+                    # Handle function calls
+                    if message.tool_call:
+                        await self._handle_tool_call(message.tool_call, session)
 
-        # Check for turn completion
-        if "turnComplete" in content and content["turnComplete"]:
-            # Send final marker
-            self.emit_func('audio_chunk', {
-                'session_id': self.session_id,
-                'is_final': True
-            })
-            print(f"[Gemini Live] Turn complete")
+        except asyncio.CancelledError:
+            # Task was cancelled, exit gracefully
+            pass
+        except Exception as e:
+            print(f"[Gemini Live] Receive error: {e}")
 
-    async def _handle_tool_call(self, tool_call_data):
+    async def _send_loop(self, session):
+        """Send audio messages to Gemini from queue"""
+        try:
+            while True:
+                # Wait for audio data from the queue
+                audio_data = await self.audio_queue.get()
+
+                # Send to Gemini using realtime_input
+                await session.send_realtime_input(
+                    media_chunks=[
+                        types.Blob(
+                            mime_type='audio/pcm;rate=16000',
+                            data=audio_data
+                        )
+                    ]
+                )
+        except asyncio.CancelledError:
+            # Task was cancelled, exit gracefully
+            pass
+        except Exception as e:
+            print(f"[Gemini Live] Send error: {e}")
+
+    async def _handle_tool_call(self, tool_call, session):
         """
         Handle function calls from Gemini
 
         Args:
-            tool_call_data: Tool call data from Gemini
+            tool_call: Tool call data from Gemini
+            session: Active Live session
         """
         print(f"[Gemini Live] Tool call received")
 
@@ -294,13 +261,13 @@ class GeminiLiveService:
             return
 
         # Extract function calls
-        function_calls = tool_call_data.get("functionCalls", [])
+        function_calls = tool_call.function_calls
 
         results = []
         for call in function_calls:
-            name = call.get("name")
-            args = call.get("args", {})
-            call_id = call.get("id", "")
+            name = call.name
+            args = dict(call.args) if call.args else {}
+            call_id = call.id
 
             print(f"[Gemini Live] Function: {name}, Args: {args}")
 
@@ -341,41 +308,38 @@ class GeminiLiveService:
                 })
 
         # Send results back to Gemini
-        await self._send_tool_results(results)
+        await self._send_tool_results(results, session)
 
-    async def _send_tool_results(self, results):
+    async def _send_tool_results(self, results, session):
         """
         Send function results back to Gemini
 
         Args:
             results: List of function results
+            session: Active Live session
         """
-        if not self.websocket:
-            return
+        try:
+            # Convert results to Gemini format
+            responses = [
+                types.FunctionResponse(
+                    id=result["id"],
+                    response=result.get("result", {})
+                )
+                for result in results
+            ]
 
-        message = {
-            "tool_response": {
-                "function_responses": [
-                    {
-                        "id": result["id"],
-                        "response": result.get("result", {})
-                    }
-                    for result in results
-                ]
-            }
-        }
-
-        await self.websocket.send(json.dumps(message))
+            await session.send_tool_response(
+                function_responses=responses
+            )
+        except Exception as e:
+            print(f"[Gemini Live] Send tool results error: {e}")
 
     def _get_session(self):
         """Get current session from voice_agent (placeholder)"""
-        # This will be passed from voice_agent
-        # For now, return a minimal session dict
         return getattr(self, '_session', {})
 
     def _get_menu_data(self):
         """Get menu data (placeholder)"""
-        # This will be passed from voice_agent
         return getattr(self, '_menu_data', {})
 
     def set_session_data(self, session, menu_data):
@@ -394,12 +358,9 @@ class GeminiLiveService:
             except asyncio.CancelledError:
                 pass
 
-        if self.websocket:
-            await self.websocket.close()
-            self.websocket = None
-
+        self.session = None
         print("[Gemini Live] Disconnected")
 
     def is_active(self):
         """Check if connection is active"""
-        return self.is_connected and self.websocket is not None
+        return self.is_connected and self.session is not None
