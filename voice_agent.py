@@ -21,6 +21,9 @@ import config
 from services.order_service import OrderService
 from services.llm_service import LLMService
 
+# Import ASR hot words support
+from asr_vocabulary import get_or_create_phrases
+
 # Set DashScope API key globally (required for Recognition class)
 dashscope.api_key = config.DASHSCOPE_API_KEY
 
@@ -28,13 +31,32 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
 socketio = SocketIO(app, **config.SOCKETIO_CONFIG)
 
+# Initialize ASR hot words phrase ID (cached)
+# This improves recognition accuracy for restaurant-specific terms
+asr_phrase_id = None
+
+def init_asr_phrases():
+    """Initialize ASR hot words in background"""
+    global asr_phrase_id
+    try:
+        asr_phrase_id = get_or_create_phrases()
+        if asr_phrase_id:
+            print(f"[ASR] Hot words enabled: {asr_phrase_id}")
+        else:
+            print("[ASR] Hot words not available, using default ASR")
+    except Exception as e:
+        print(f"[ASR] Hot words initialization failed: {e}")
+        print("[ASR] Continuing with default ASR settings")
+
 # Initialize DashScope client
 dashscope_client = DashScopeClient()
 
 # Initialize OpenAI client for function calling (DashScope compatible)
+# Using persistent HTTP session for connection reuse (performance optimization)
 openai_client = OpenAI(
     api_key=config.DASHSCOPE_API_KEY,
-    base_url=config.DASHSCOPE_BASE_URL
+    base_url=config.DASHSCOPE_BASE_URL,
+    http_client=config.HTTP_CLIENT
 )
 
 # Initialize performance monitoring
@@ -42,6 +64,40 @@ perf_monitor = PerformanceMetrics(max_history=config.MAX_PERFORMANCE_HISTORY)
 
 # Initialize LLM service
 llm_service = LLMService(openai_client, dashscope_client, perf_monitor)
+
+
+# ============================================================================
+# Connection Pre-warming (Performance Optimization)
+# ============================================================================
+
+def prewarm_connections():
+    """
+    Pre-warm API connections by sending a small request.
+    This establishes HTTP connection (DNS + TCP + TLS) before user speaks,
+    eliminating 80-350ms connection overhead on first real request.
+    """
+    import threading
+
+    def _warmup():
+        try:
+            print("[Perf] Pre-warming API connections...")
+
+            # Warm up LLM connection with minimal request
+            _ = openai_client.chat.completions.create(
+                model='qwen-plus',
+                messages=[{'role': 'user', 'content': 'hi'}],
+                max_tokens=1,
+                stream=False
+            )
+
+            print("[Perf] ✓ Connections pre-warmed")
+        except Exception as e:
+            # Non-critical - just log warning
+            print(f"[Perf] Pre-warm warning: {e}")
+
+    # Run in background thread to avoid blocking
+    threading.Thread(target=_warmup, daemon=True).start()
+
 
 # In-memory session storage
 sessions = {}
@@ -405,6 +461,9 @@ def handle_create_session(data):
     session.state = config.SessionState.ORDERING  # Start in ORDERING state to capture orders immediately
     sessions[session.session_id] = session
 
+    # Pre-warm connections to reduce first request latency
+    prewarm_connections()
+
     emit('session_created', {
         'session_id': session.session_id,
         'table_name': session.table_name,
@@ -469,9 +528,14 @@ def handle_audio_data(data):
 
         # Start recognition on first audio frame
         if not rec_data['started']:
-            recognition.start()
+            # Use hot words if available (improves accuracy for restaurant terms)
+            if asr_phrase_id:
+                recognition.start(phrase_id=asr_phrase_id)
+                print(f"[ASR] Recognition started with hot words for session {rec_data['session_id']}")
+            else:
+                recognition.start()
+                print(f"[ASR] Recognition started for session {rec_data['session_id']}")
             rec_data['started'] = True
-            print(f"[ASR] Recognition started for session {rec_data['session_id']}")
 
         # Get audio data (base64 encoded)
         audio_base64 = data.get('audio')
@@ -502,7 +566,10 @@ def handle_audio_data(data):
                 )
 
                 # Start new recognition
-                new_recognition.start()
+                if asr_phrase_id:
+                    new_recognition.start(phrase_id=asr_phrase_id)
+                else:
+                    new_recognition.start()
 
                 # Update stored recognition
                 active_recognitions[request.sid] = {
@@ -968,6 +1035,10 @@ if __name__ == '__main__':
     os.makedirs('data', exist_ok=True)
     os.makedirs('static', exist_ok=True)
     os.makedirs('templates', exist_ok=True)
+
+    # Initialize ASR hot words (improves recognition accuracy)
+    print("[Init] Setting up ASR hot words...")
+    init_asr_phrases()
 
     print("="*60)
     print("CamareraI - Streaming Voice Agent POC")

@@ -6,6 +6,9 @@ Centralizes all configuration settings, API keys, and constants
 import os
 from dotenv import load_dotenv
 
+# Import for HTTP session management (performance optimization)
+import httpx
+
 load_dotenv()
 
 # ============================================================================
@@ -14,6 +17,40 @@ load_dotenv()
 
 DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY')
 DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+
+# ============================================================================
+# HTTP Session Configuration (Performance Optimization)
+# ============================================================================
+
+def create_persistent_http_client():
+    """
+    Create a persistent HTTP client with connection pooling and keep-alive.
+    This reduces connection establishment overhead (DNS + TCP + TLS) for API calls.
+    Expected savings: 80-350ms per connection.
+
+    Uses httpx which is compatible with OpenAI client.
+    """
+    # Configure connection pooling limits
+    limits = httpx.Limits(
+        max_connections=20,
+        max_keepalive_connections=10,
+        keepalive_expiry=60.0
+    )
+
+    # Create client with persistent connection pool
+    client = httpx.Client(
+        limits=limits,
+        timeout=httpx.Timeout(30.0, connect=5.0)
+        # Note: http2=True requires 'h2' package (pip install httpx[http2])
+        # Using HTTP/1.1 with keep-alive for now
+    )
+
+    return client
+
+
+# Global persistent HTTP client for reuse across requests
+# This is used by the OpenAI client for connection pooling
+HTTP_CLIENT = create_persistent_http_client()
 
 # ============================================================================
 # Server Configuration
