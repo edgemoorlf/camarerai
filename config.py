@@ -35,6 +35,7 @@ DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 
 # Gemini Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+# Note: Must use native-audio model for Live API
 GEMINI_LIVE_MODEL = os.getenv('GEMINI_LIVE_MODEL', 'gemini-2.5-flash-native-audio-latest')
 
 # ============================================================================
