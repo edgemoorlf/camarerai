@@ -185,11 +185,12 @@ class GeminiLiveService:
                                 audio_bytes = part.inline_data.data
                                 self._chunk_count += 1
 
-                                # Emit audio chunk to client
+                                # Emit audio chunk to client (base64 encoded)
+                                import base64
                                 self.emit_func('audio_chunk', {
                                     'session_id': self.session_id,
                                     'chunk_type': 'data',
-                                    'audio_data': audio_bytes,
+                                    'audio_data': base64.b64encode(audio_bytes).decode('utf-8'),
                                     'chunk_number': self._chunk_count,
                                     'is_final': False
                                 })
