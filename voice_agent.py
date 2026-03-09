@@ -18,8 +18,10 @@ from streaming_utils import has_sentence_ending
 from performance_monitor import PerformanceMetrics
 from openai import OpenAI
 import config
+import asyncio
 from services.order_service import OrderService
 from services.llm_service import LLMService
+from services.provider_factory import create_llm_service, create_gemini_live_service, create_order_service, get_provider_info
 
 # Import ASR hot words support
 from asr_vocabulary import get_or_create_phrases
@@ -48,22 +50,30 @@ def init_asr_phrases():
         print(f"[ASR] Hot words initialization failed: {e}")
         print("[ASR] Continuing with default ASR settings")
 
-# Initialize DashScope client
-dashscope_client = DashScopeClient()
-
-# Initialize OpenAI client for function calling (DashScope compatible)
-# Using persistent HTTP session for connection reuse (performance optimization)
-openai_client = OpenAI(
-    api_key=config.DASHSCOPE_API_KEY,
-    base_url=config.DASHSCOPE_BASE_URL,
-    http_client=config.HTTP_CLIENT
-)
-
 # Initialize performance monitoring
 perf_monitor = PerformanceMetrics(max_history=config.MAX_PERFORMANCE_HISTORY)
 
-# Initialize LLM service
-llm_service = LLMService(openai_client, dashscope_client, perf_monitor)
+# Initialize services based on provider configuration
+provider_info = get_provider_info()
+print(f"[Provider] Using provider: {provider_info['provider']}")
+
+# Initialize provider-specific services
+gemini_live_service = create_gemini_live_service(perf_monitor)
+llm_service = create_llm_service(perf_monitor)
+order_service = create_order_service()
+
+# DashScope-specific initialization (when not using Gemini)
+dashscope_client = None
+openai_client = None
+if config.PROVIDER == 'dashscope':
+    dashscope_client = DashScopeClient()
+    openai_client = OpenAI(
+        api_key=config.DASHSCOPE_API_KEY,
+        base_url=config.DASHSCOPE_BASE_URL,
+        http_client=config.HTTP_CLIENT
+    )
+    # Re-create LLM service with proper clients
+    llm_service = LLMService(openai_client, dashscope_client, perf_monitor)
 
 
 # ============================================================================
@@ -82,15 +92,20 @@ def prewarm_connections():
         try:
             print("[Perf] Pre-warming API connections...")
 
-            # Warm up LLM connection with minimal request
-            _ = openai_client.chat.completions.create(
-                model='qwen-plus',
-                messages=[{'role': 'user', 'content': 'hi'}],
-                max_tokens=1,
-                stream=False
-            )
+            if config.PROVIDER == 'dashscope' and openai_client:
+                # Warm up DashScope LLM connection with minimal request
+                _ = openai_client.chat.completions.create(
+                    model='qwen-plus',
+                    messages=[{'role': 'user', 'content': 'hi'}],
+                    max_tokens=1,
+                    stream=False
+                )
+                print("[Perf] ✓ DashScope connections pre-warmed")
+            elif config.PROVIDER == 'gemini':
+                # Gemini Live API connection is established on first use
+                # No pre-warming needed (WebSocket)
+                print("[Perf] ✓ Gemini Live API (no pre-warm needed)")
 
-            print("[Perf] ✓ Connections pre-warmed")
         except Exception as e:
             # Non-critical - just log warning
             print(f"[Perf] Pre-warm warning: {e}")
@@ -444,7 +459,20 @@ def handle_disconnect():
     if request.sid in active_recognitions:
         try:
             rec_data = active_recognitions[request.sid]
-            if rec_data['started']:
+            # Handle Gemini Live API disconnect
+            if rec_data.get('provider') == 'gemini':
+                gemini_service = rec_data.get('gemini_service')
+                if gemini_service:
+                    def disconnect_gemini():
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(gemini_service.disconnect())
+                        except Exception as e:
+                            print(f"[Gemini] Disconnect error: {e}")
+                    import threading
+                    threading.Thread(target=disconnect_gemini, daemon=True).start()
+            elif rec_data['started']:
                 rec_data['recognition'].stop()
         except:
             pass
@@ -474,7 +502,7 @@ def handle_create_session(data):
 
 @socketio.on('start_recognition')
 def handle_start_recognition(data):
-    """Start streaming ASR"""
+    """Start streaming ASR (DashScope) or Gemini Live API connection"""
     session_id = data.get('session_id')
 
     if not session_id or session_id not in sessions:
@@ -482,6 +510,54 @@ def handle_start_recognition(data):
         return
 
     try:
+        session = sessions[session_id]
+
+        # Gemini Live API mode
+        if config.PROVIDER == 'gemini':
+            if not gemini_live_service:
+                emit('error', {'message': 'Gemini Live service not available'})
+                return
+
+            # Start performance tracking
+            perf_monitor.start_timer('gemini_live')
+
+            # Store session data for function calling
+            gemini_live_service.set_session_data(session, menu_data)
+
+            # Store in active recognitions for audio routing
+            active_recognitions[request.sid] = {
+                'gemini_service': gemini_live_service,
+                'started': True,
+                'session_id': session_id,
+                'provider': 'gemini'
+            }
+
+            # Connect to Gemini Live API (async)
+            def connect_gemini():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(gemini_live_service.connect(
+                        session_id=session_id,
+                        emit_func=emit,
+                        order_service=order_service,
+                        tools=[config.ORDER_UPDATE_TOOL]
+                    ))
+                except Exception as e:
+                    print(f"[Gemini] Connection error: {e}")
+                    emit('error', {'message': f'Gemini connection failed: {str(e)}'})
+
+            import threading
+            threading.Thread(target=connect_gemini, daemon=True).start()
+
+            emit('recognition_started', {
+                'session_id': session_id,
+                'provider': 'gemini'
+            })
+            print(f"[Gemini] Live API connection starting for session {session_id}")
+            return
+
+        # DashScope ASR mode
         # Start performance tracking for ASR
         perf_monitor.start_timer('asr')
 
@@ -495,7 +571,7 @@ def handle_start_recognition(data):
             sample_rate=16000,
             callback=callback,
             semantic_punctuation_enabled=True,
-            max_sentence_silence=5000,  # Increased from 2500ms to 5000ms to capture longer pauses
+            max_sentence_silence=5000,
             disfluency_removal_enabled=False
         )
 
@@ -504,7 +580,8 @@ def handle_start_recognition(data):
             'recognition': recognition,
             'started': False,
             'session_id': session_id,
-            'callback': callback
+            'callback': callback,
+            'provider': 'dashscope'
         }
 
         print(f"[ASR] Recognition prepared for session {session_id}")
@@ -520,6 +597,26 @@ def handle_start_recognition(data):
 def handle_audio_data(data):
     """Handle streaming audio data"""
     try:
+        # Gemini Live API mode - stream directly to Gemini
+        if config.PROVIDER == 'gemini':
+            if request.sid not in active_recognitions:
+                return
+
+            rec_data = active_recognitions[request.sid]
+            audio_base64 = data.get('audio')
+            if not audio_base64:
+                return
+
+            audio_bytes = base64.b64decode(audio_base64)
+
+            # Stream to Gemini Live API
+            gemini_service = rec_data.get('gemini_service')
+            if gemini_service and gemini_service.is_active():
+                # Use asyncio to send audio
+                asyncio.run(gemini_service.send_audio(audio_bytes))
+            return
+
+        # DashScope ASR mode
         if request.sid not in active_recognitions:
             return
 
@@ -594,15 +691,32 @@ def handle_audio_data(data):
 
 @socketio.on('stop_recognition')
 def handle_stop_recognition(data):
-    """Stop streaming ASR"""
+    """Stop streaming ASR or Gemini Live API"""
     try:
         if request.sid in active_recognitions:
             rec_data = active_recognitions[request.sid]
-            recognition = rec_data['recognition']
 
-            if rec_data['started']:
-                recognition.stop()
-                print(f"[ASR] Recognition stopped for session {rec_data['session_id']}")
+            # Handle Gemini Live API
+            if rec_data.get('provider') == 'gemini':
+                gemini_service = rec_data.get('gemini_service')
+                if gemini_service:
+                    def disconnect_gemini():
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(gemini_service.disconnect())
+                        except Exception as e:
+                            print(f"[Gemini] Disconnect error: {e}")
+
+                    import threading
+                    threading.Thread(target=disconnect_gemini, daemon=True).start()
+                print(f"[Gemini] Live API stopped for session {rec_data['session_id']}")
+            else:
+                # Handle DashScope ASR
+                recognition = rec_data['recognition']
+                if rec_data['started']:
+                    recognition.stop()
+                    print(f"[ASR] Recognition stopped for session {rec_data['session_id']}")
 
             del active_recognitions[request.sid]
 
@@ -615,9 +729,14 @@ def handle_stop_recognition(data):
 
 @socketio.on('chat')
 def handle_chat(data):
-    """Process chat message with function calling (Option 4)"""
+    """Process chat message with function calling (DashScope only)"""
     session_id = data.get('session_id')
     message = data.get('message')
+
+    # Gemini Live API handles conversation internally
+    if config.PROVIDER == 'gemini':
+        print(f"[Chat] Ignored - Gemini Live API handles conversation internally")
+        return
 
     if not session_id or session_id not in sessions:
         emit('error', {'message': 'Invalid session'})
@@ -824,7 +943,7 @@ CRITICAL: ONLY use action "add". DO NOT use "modify" or "remove".
 
 @socketio.on('synthesize')
 def handle_synthesize(data):
-    """Convert text to speech with streaming support"""
+    """Convert text to speech with streaming support (DashScope only)"""
     session_id = data.get('session_id')
     text = data.get('text')
     stream = data.get('stream', True)  # Default to streaming for better UX
@@ -834,6 +953,15 @@ def handle_synthesize(data):
         return
 
     session = sessions[session_id]
+
+    # Gemini Live API handles TTS internally
+    if config.PROVIDER == 'gemini':
+        print(f"[TTS] Ignored - Gemini Live API handles speech synthesis internally")
+        return
+
+    if not dashscope_client:
+        emit('error', {'message': 'DashScope client not available'})
+        return
 
     try:
         # Get voice for this table
@@ -1031,18 +1159,29 @@ def handle_start_ordering(data):
 
 
 if __name__ == '__main__':
+    # Validate provider configuration
+    try:
+        config.validate_provider_config()
+    except ValueError as e:
+        print(f"[Error] Configuration error: {e}")
+        exit(1)
+
     # Create directories
     os.makedirs('data', exist_ok=True)
     os.makedirs('static', exist_ok=True)
     os.makedirs('templates', exist_ok=True)
 
-    # Initialize ASR hot words (improves recognition accuracy)
-    print("[Init] Setting up ASR hot words...")
-    init_asr_phrases()
+    # Initialize ASR hot words for DashScope (improves recognition accuracy)
+    if config.PROVIDER == 'dashscope':
+        print("[Init] Setting up ASR hot words...")
+        init_asr_phrases()
 
     print("="*60)
     print("CamareraI - Streaming Voice Agent POC")
     print("="*60)
+    print(f"Provider: {config.PROVIDER}")
+    if config.PROVIDER == 'gemini':
+        print(f"Model: {config.GEMINI_LIVE_MODEL}")
     print(f"Server starting on http://{config.HOST}:{config.PORT}")
     print("Press Ctrl+C to stop")
     print("="*60)

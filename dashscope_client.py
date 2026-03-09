@@ -175,7 +175,6 @@ class DashScopeClient:
                             audio_url = audio_data.get('url')
                             if audio_url:
                                 chunk_count += 1
-                                print(f"[TTS] Chunk {chunk_count}: URL received")
                                 yield {'type': 'url', 'data': audio_url}
 
                         # Check for raw audio data (base64 or bytes)
@@ -183,13 +182,11 @@ class DashScopeClient:
                             audio_chunk = audio_data.get('data')
                             if audio_chunk:
                                 chunk_count += 1
-                                print(f"[TTS] Chunk {chunk_count}: {len(audio_chunk)} bytes")
                                 yield {'type': 'data', 'data': audio_chunk}
 
                         # Check if audio_data itself is the data
                         elif audio_data and not isinstance(audio_data, dict):
                             chunk_count += 1
-                            print(f"[TTS] Chunk {chunk_count}: raw data")
                             yield {'type': 'data', 'data': audio_data}
                 else:
                     print(f"[TTS] Chunk error: {chunk.status_code} - {chunk.message}")

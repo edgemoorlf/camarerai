@@ -7,8 +7,13 @@ import os
 from google import genai
 from google.genai import types
 
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 # Configure API key
-GEMINI_API_KEY = "AIzaSyA_eFyU4EueIpm5xYAivKi5trF94dVoGzw"
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def test_api_key():

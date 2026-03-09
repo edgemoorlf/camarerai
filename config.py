@@ -12,11 +12,30 @@ import httpx
 load_dotenv()
 
 # ============================================================================
+# Provider Configuration
+# ============================================================================
+
+# Provider selection: 'dashscope' or 'gemini'
+# - 'dashscope': Use DashScope for ASR, LLM, TTS (separate services)
+# - 'gemini': Use Gemini Live API (unified audio-to-audio streaming)
+PROVIDER = os.getenv('PROVIDER', 'dashscope')
+
+# Individual service providers (for future hybrid mode)
+ASR_PROVIDER = os.getenv('ASR_PROVIDER', 'dashscope')
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'dashscope')
+TTS_PROVIDER = os.getenv('TTS_PROVIDER', 'dashscope')
+
+# ============================================================================
 # API Configuration
 # ============================================================================
 
+# DashScope Configuration
 DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY')
 DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+
+# Gemini Configuration
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+GEMINI_LIVE_MODEL = os.getenv('GEMINI_LIVE_MODEL', 'gemini-2.0-flash-live-001')
 
 # ============================================================================
 # HTTP Session Configuration (Performance Optimization)
@@ -158,3 +177,13 @@ class SessionState:
     CONFIRMED = 'confirmed'
     CONFIRMED_PASSIVE = 'confirmed_passive'  # Passive listening (no AI response)
     CONFIRMED_STOPPED = 'confirmed_stopped'  # Listening stopped
+
+
+def validate_provider_config():
+    """Validate provider configuration"""
+    if PROVIDER == 'gemini' and not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY required when PROVIDER=gemini")
+    if PROVIDER == 'dashscope' and not DASHSCOPE_API_KEY:
+        raise ValueError("DASHSCOPE_API_KEY required when PROVIDER=dashscope")
+    if PROVIDER not in ('dashscope', 'gemini'):
+        raise ValueError(f"Invalid PROVIDER: {PROVIDER}. Use 'dashscope' or 'gemini'")
