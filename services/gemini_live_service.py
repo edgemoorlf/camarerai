@@ -231,14 +231,12 @@ class GeminiLiveService:
                 # Wait for audio data from the queue
                 audio_data = await self.audio_queue.get()
 
-                # Send to Gemini using realtime_input
+                # Send to Gemini using realtime_input with 'media' parameter
                 await session.send_realtime_input(
-                    media_chunks=[
-                        types.Blob(
-                            mime_type='audio/pcm;rate=16000',
-                            data=audio_data
-                        )
-                    ]
+                    media=types.Blob(
+                        mime_type='audio/pcm;rate=16000',
+                        data=audio_data
+                    )
                 )
         except asyncio.CancelledError:
             # Task was cancelled, exit gracefully
