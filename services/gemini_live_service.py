@@ -73,8 +73,15 @@ class GeminiLiveService:
 
         try:
             print(f"[Gemini Live] Connecting to {self.model}...")
+            print(f"[Gemini Live] URL: wss://generativelanguage.googleapis.com/v1alpha/models/{self.model}:connect")
 
-            self.websocket = await websockets.connect(ws_url)
+            # Connect with timeout and proper headers
+            self.websocket = await websockets.connect(
+                ws_url,
+                ping_interval=20,
+                ping_timeout=10,
+                close_timeout=5
+            )
             self.is_connected = True
 
             # Send setup configuration

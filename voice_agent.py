@@ -533,19 +533,20 @@ def handle_start_recognition(data):
             }
 
             # Connect to Gemini Live API (async)
+            client_sid = request.sid  # Capture sid for use in thread
             def connect_gemini():
                 try:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     loop.run_until_complete(gemini_live_service.connect(
                         session_id=session_id,
-                        emit_func=emit,
+                        emit_func=lambda event, data: socketio.emit(event, data, room=client_sid),
                         order_service=order_service,
                         tools=[config.ORDER_UPDATE_TOOL]
                     ))
                 except Exception as e:
                     print(f"[Gemini] Connection error: {e}")
-                    emit('error', {'message': f'Gemini connection failed: {str(e)}'})
+                    socketio.emit('error', {'message': f'Gemini connection failed: {str(e)}'}, room=client_sid)
 
             import threading
             threading.Thread(target=connect_gemini, daemon=True).start()
