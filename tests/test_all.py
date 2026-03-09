@@ -53,7 +53,7 @@ def main():
     files_ok &= check_file_exists("streaming_voice_agent.py", "Streaming server")
     files_ok &= check_file_exists("static/app_streaming.js", "Streaming client")
     files_ok &= check_file_exists("templates/index_streaming.html", "Streaming UI")
-    files_ok &= check_file_exists("dashscope_client.py", "DashScope client")
+    files_ok &= check_file_exists("services/dashscope_service.py", "DashScope service")
     files_ok &= check_file_exists(".env", "Environment config")
     files_ok &= check_file_exists("data/menu.json", "Menu data")
     all_tests.append(("Files", files_ok))

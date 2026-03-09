@@ -5,7 +5,7 @@ Real-time ASR with streaming audio input
 
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
-from dashscope_client import DashScopeClient
+from services.dashscope_service import DashScopeService
 import json
 import os
 from datetime import datetime
@@ -63,17 +63,17 @@ llm_service = create_llm_service(perf_monitor)
 order_service = create_order_service()
 
 # DashScope-specific initialization (when not using Gemini)
-dashscope_client = None
+dashscope_service = None
 openai_client = None
 if config.PROVIDER == 'dashscope':
-    dashscope_client = DashScopeClient()
+    dashscope_service = DashScopeService()
     openai_client = OpenAI(
         api_key=config.DASHSCOPE_API_KEY,
         base_url=config.DASHSCOPE_BASE_URL,
         http_client=config.HTTP_CLIENT
     )
     # Re-create LLM service with proper clients
-    llm_service = LLMService(openai_client, dashscope_client, perf_monitor)
+    llm_service = LLMService(openai_client, dashscope_service, perf_monitor)
 
 
 # ============================================================================
@@ -959,8 +959,8 @@ def handle_synthesize(data):
         print(f"[TTS] Ignored - Gemini Live API handles speech synthesis internally")
         return
 
-    if not dashscope_client:
-        emit('error', {'message': 'DashScope client not available'})
+    if not dashscope_service:
+        emit('error', {'message': 'DashScope service not available'})
         return
 
     try:
@@ -980,7 +980,7 @@ def handle_synthesize(data):
 
             # Stream audio chunks
             chunk_count = 0
-            for audio_chunk in dashscope_client.synthesize(text, voice=voice, language_type='Auto', stream=True):
+            for audio_chunk in dashscope_service.synthesize(text, voice=voice, language_type='Auto', stream=True):
                 chunk_count += 1
 
                 # Send chunk to client
@@ -1004,7 +1004,7 @@ def handle_synthesize(data):
 
         else:
             # Non-streaming mode - send complete audio URL
-            audio_url = dashscope_client.synthesize(text, voice=voice, language_type='Auto', stream=False)
+            audio_url = dashscope_service.synthesize(text, voice=voice, language_type='Auto', stream=False)
 
             print(f"[TTS] Audio URL received: {audio_url}")
 

@@ -10,9 +10,9 @@ from streaming_utils import has_sentence_ending
 class LLMService:
     """Handles LLM interaction with function calling"""
 
-    def __init__(self, openai_client, dashscope_client, perf_monitor):
+    def __init__(self, openai_client, dashscope_service, perf_monitor):
         self.openai_client = openai_client
-        self.dashscope_client = dashscope_client
+        self.dashscope_service = dashscope_service
         self.perf_monitor = perf_monitor
 
     def stream_with_function_calling(self, messages, tools, voice, session_id, emit_func):
@@ -144,7 +144,7 @@ class LLMService:
 
             # Starting DashScope synthesize call
 
-            for audio_chunk in self.dashscope_client.synthesize(
+            for audio_chunk in self.dashscope_service.synthesize(
                 sentence,
                 voice=voice,
                 language_type='Auto',

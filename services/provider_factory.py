@@ -5,7 +5,7 @@ Supports DashScope and Gemini providers
 """
 
 import config
-from dashscope_client import DashScopeClient
+from .dashscope_service import DashScopeService
 from openai import OpenAI
 from .order_service import OrderService
 from .llm_service import LLMService
@@ -33,8 +33,8 @@ def create_llm_service(perf_monitor=None):
             base_url=config.DASHSCOPE_BASE_URL,
             http_client=config.HTTP_CLIENT
         )
-        dashscope_client = DashScopeClient()
-        return LLMService(openai_client, dashscope_client, perf_monitor)
+        dashscope_service = DashScopeService()
+        return LLMService(openai_client, dashscope_service, perf_monitor)
 
 
 def create_gemini_live_service(perf_monitor=None):
