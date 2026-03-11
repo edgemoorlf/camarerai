@@ -15,9 +15,10 @@ load_dotenv()
 # Provider Configuration
 # ============================================================================
 
-# Provider selection: 'dashscope' or 'gemini'
+# Provider selection: 'dashscope', 'gemini', or 'gemini_live'
 # - 'dashscope': Use DashScope for ASR, LLM, TTS (separate services)
-# - 'gemini': Use Gemini Live API (unified audio-to-audio streaming)
+# - 'gemini': Use Gemini Standard API (ASR+LLM) + DashScope TTS
+# - 'gemini_live': Use Gemini Live API (unified audio-to-audio streaming)
 PROVIDER = os.getenv('PROVIDER', 'dashscope')
 
 # Individual service providers (for future hybrid mode)
@@ -186,5 +187,5 @@ def validate_provider_config():
         raise ValueError("GEMINI_API_KEY required when PROVIDER=gemini")
     if PROVIDER == 'dashscope' and not DASHSCOPE_API_KEY:
         raise ValueError("DASHSCOPE_API_KEY required when PROVIDER=dashscope")
-    if PROVIDER not in ('dashscope', 'gemini'):
-        raise ValueError(f"Invalid PROVIDER: {PROVIDER}. Use 'dashscope' or 'gemini'")
+    if PROVIDER not in ('dashscope', 'gemini', 'gemini_live'):
+        raise ValueError(f"Invalid PROVIDER: {PROVIDER}. Use 'dashscope', 'gemini', or 'gemini_live'")

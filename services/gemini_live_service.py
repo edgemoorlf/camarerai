@@ -7,10 +7,49 @@ Unified ASR + LLM + TTS in a single WebSocket connection
 import json
 import base64
 import asyncio
+import io
+import struct
 from typing import Callable
 from google import genai
 from google.genai import types
 import config
+
+
+def pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000, channels: int = 1, bits_per_sample: int = 16) -> bytes:
+    """
+    Convert raw PCM data to WAV format (adds headers).
+
+    Args:
+        pcm_data: Raw PCM bytes
+        sample_rate: Sample rate in Hz (default 24000)
+        channels: Number of channels (default 1 for mono)
+        bits_per_sample: Bits per sample (default 16)
+
+    Returns:
+        WAV file as bytes
+    """
+    byte_rate = sample_rate * channels * bits_per_sample // 8
+    block_align = channels * bits_per_sample // 8
+
+    # WAV header
+    header = struct.pack(
+        '<4sI4s4sIHHIHH4sI',
+        b'RIFF',                           # ChunkID
+        36 + len(pcm_data),                # ChunkSize
+        b'WAVE',                           # Format
+        b'fmt ',                           # Subchunk1ID
+        16,                                # Subchunk1Size (16 for PCM)
+        1,                                 # AudioFormat (1 for PCM)
+        channels,                          # NumChannels
+        sample_rate,                       # SampleRate
+        byte_rate,                         # ByteRate
+        block_align,                       # BlockAlign
+        bits_per_sample,                   # BitsPerSample
+        b'data',                           # Subchunk2ID
+        len(pcm_data)                      # Subchunk2Size
+    )
+
+    return header + pcm_data
 
 
 class GeminiLiveService:
@@ -185,12 +224,12 @@ class GeminiLiveService:
                                 audio_bytes = part.inline_data.data
                                 self._chunk_count += 1
 
-                                # Emit audio chunk to client (base64 encoded)
-                                import base64
+                                # Convert PCM to WAV and emit to client
+                                wav_data = pcm_to_wav(audio_bytes, sample_rate=24000)
                                 self.emit_func('audio_chunk', {
                                     'session_id': self.session_id,
                                     'chunk_type': 'data',
-                                    'audio_data': base64.b64encode(audio_bytes).decode('utf-8'),
+                                    'audio_data': base64.b64encode(wav_data).decode('utf-8'),
                                     'chunk_number': self._chunk_count,
                                     'is_final': False
                                 })

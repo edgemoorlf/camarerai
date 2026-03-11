@@ -37,18 +37,19 @@ def create_llm_service(perf_monitor=None):
         return LLMService(openai_client, dashscope_service, perf_monitor)
 
 
-def create_gemini_live_service(perf_monitor=None):
+def create_gemini_service(perf_monitor=None):
     """
-    Create Gemini Live API service
+    Create Gemini Standard API service (ASR + LLM)
 
     Args:
         perf_monitor: PerformanceMetrics instance
 
     Returns:
-        GeminiLiveService instance or None if not using Gemini
+        GeminiStandardService instance or None if not using Gemini
     """
     if config.PROVIDER == 'gemini':
-        return GeminiLiveService(perf_monitor)
+        from .gemini_standard_service import GeminiStandardService
+        return GeminiStandardService(perf_monitor)
     return None
 
 

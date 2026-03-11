@@ -1,18 +1,19 @@
 # CamareraI - Voice Ordering System
 
-**Status:** POC - Performance Optimization Focus
-**Last Updated:** 2026-03-07
-**Branch:** `feature/performance-optimization`
+**Status:** POC - Multi-Provider Architecture
+**Last Updated:** 2026-03-10
+**Branch:** `feature/gemini-live-api`
 
-> **Note:** Speaker verification is available on `experiment/speaker-id-fingerprint` branch but deferred for now. Performance is the current priority.
+> **Note:** The codebase now supports multiple AI providers: DashScope, Gemini Standard API, and Gemini Live API. Use `PROVIDER` env var to switch between them.
 
 ---
 
 ## 🎯 Current Implementation
 
-**Active File:** `voice_agent.py`
+**Entry Point:** `main.py`
+**Provider:** Configurable (`dashscope`, `gemini`, `gemini_live`)
 **Status:** ✅ Ready to test
-**Architecture:** WebSocket-based streaming ASR with end-to-end streaming (ASR → LLM → TTS)
+**Architecture:** Modular provider-specific voice agents with shared components
 
 ### 🎯 Current Focus: Performance Optimization
 
@@ -78,8 +79,21 @@ pip install -r requirements.txt
 
 ### 3. Start the Server
 
+**DashScope (default - full streaming):**
 ```bash
-python3 voice_agent.py
+python3 main.py
+# or explicitly:
+PROVIDER=dashscope python3 main.py
+```
+
+**Gemini Standard API (batch ASR+LLM, DashScope TTS):**
+```bash
+PROVIDER=gemini python3 main.py
+```
+
+**Gemini Live API (native bidirectional audio streaming):**
+```bash
+PROVIDER=gemini_live python3 main.py
 ```
 
 ### 4. Open Browser
@@ -138,14 +152,29 @@ Speaker verification with client-side voice fingerprinting is implemented on the
 ### Core Files (Active)
 
 ```
-voice_agent.py               # Main server (WebSocket + streaming ASR)
-config.py                    # Centralized configuration
+main.py                          # Entry point - launches appropriate provider
+config.py                        # Centralized configuration
+
+# Provider-specific voice agents (choose one via PROVIDER env var)
+voice_agent_dashscope.py         # DashScope ASR+LLM+TTS (streaming)
+voice_agent_gemini_standard.py   # Gemini ASR+LLM + DashScope TTS
+voice_agent_gemini_live.py       # Gemini Live API (native audio streaming)
+
+# Shared components
+models/
+└── conversation_session.py      # Session management (provider-agnostic)
+routes/
+└── api.py                       # HTTP API routes (shared)
 services/
-├── order_service.py         # Order processing logic
-└── llm_service.py           # LLM streaming with function calling
-dashscope_client.py          # DashScope API wrapper
-performance_monitor.py       # Real-time performance metrics
-test_all.py                  # Complete system check
+├── order_service.py             # Order processing logic
+├── llm_service.py               # LLM streaming with function calling
+├── dashscope_service.py         # DashScope API wrapper
+├── gemini_standard_service.py   # Gemini Standard API (ASR+LLM)
+├── gemini_live_service.py       # Gemini Live API service
+└── provider_factory.py          # Service factory
+
+performance_monitor.py           # Real-time performance metrics
+test_all.py                      # Complete system check
 
 data/
 ├── menu.json                # Restaurant menu (multilingual)
@@ -163,6 +192,7 @@ templates/
 └── index.html               # Minimal UI (status + order summary)
 
 # Note: speaker_fingerprint.js is on experiment/speaker-id-fingerprint branch
+Note: voice_agent.py is the legacy file (kept for reference, use main.py instead)
 ```
 
 ### Documentation
@@ -218,7 +248,7 @@ WebSocket connection error
 pip install -r requirements.txt
 
 # Restart server
-python3 voice_agent.py
+python3 main.py
 ```
 
 ### Issue 3: Microphone Not Starting
@@ -239,7 +269,7 @@ python3 voice_agent.py
 
 ## 🎤 How It Works
 
-### Architecture
+### Architecture (DashScope Mode)
 
 ```
 Browser Microphone (16kHz PCM)
@@ -259,7 +289,30 @@ Browser (streaming audio playback)
 
 **End-to-End Streaming:** ASR → LLM → TTS streams continuously for low latency.
 
-### Flow
+### Architecture (Gemini Live Mode)
+
+```
+Browser Microphone (16kHz PCM)
+    ↓ WebSocket
+Flask-SocketIO Server
+    ↓ WebSocket (PCM streaming)
+Gemini Live API
+    ↓ Unified bidirectional streaming
+    ↓ Native ASR + LLM + TTS
+Browser (streaming audio playback)
+```
+
+**Unified Streaming:** Single WebSocket connection handles both input and output audio.
+
+### Provider Architectures
+
+| Provider | ASR | LLM | TTS | Audio Format | Best For |
+|----------|-----|-----|-----|--------------|----------|
+| **DashScope** | Streaming Paraformer | Qwen (streaming) | Sambert (streaming) | PCM 16kHz | Production use, full control |
+| **Gemini Standard** | Batch (Gemini 1.5 Flash) | Gemini 1.5 Flash | DashScope Sambert | WebM → PCM | Quick testing, lower latency |
+| **Gemini Live** | Native (Live API) | Native (Live API) | Native (Live API) | PCM 16kHz | Lowest latency, unified API |
+
+### Flow (DashScope Mode - Default)
 
 1. **Page loads**
    - "Touch to Order" button appears
@@ -297,6 +350,7 @@ Browser (streaming audio playback)
 **Latency:**
 - ASR: 0.5-1 second (real-time streaming)
 - First audio: ~400-600ms (target: <300ms)
+- Gemini Live API typically has the lowest latency due to unified streaming
 
 ---
 
@@ -352,6 +406,26 @@ AI: [确认订单]
 Create `.env` file:
 ```bash
 DASHSCOPE_API_KEY=sk-your-key-here
+GEMINI_API_KEY=your-gemini-key-here  # Required for gemini or gemini_live providers
+PROVIDER=dashscope  # Options: dashscope, gemini, gemini_live
+```
+
+### Provider Selection
+
+| Variable | Options | Default | Description |
+|----------|---------|---------|-------------|
+| `PROVIDER` | `dashscope`, `gemini`, `gemini_live` | `dashscope` | Selects which voice agent to run |
+
+**Examples:**
+```bash
+# DashScope (full streaming, production-ready)
+PROVIDER=dashscope python3 main.py
+
+# Gemini Standard (batch ASR+LLM, separate TTS)
+PROVIDER=gemini python3 main.py
+
+# Gemini Live (native bidirectional audio, lowest latency)
+PROVIDER=gemini_live python3 main.py
 ```
 
 ### Speaker Verification Threshold
@@ -461,14 +535,34 @@ See [docs/eng/CURRENT_STATUS.md](docs/eng/CURRENT_STATUS.md) for detailed optimi
 
 ### Current Architecture
 
-**Refactored Structure (2026-02-11):**
+**Refactored Structure (2026-03-10):**
 ```
-config.py                    # All configuration
+main.py                          # Entry point - imports provider-specific agent
+config.py                        # All configuration
+
+# Provider-specific implementations (no mixed logic)
+voice_agent_dashscope.py         # Complete DashScope implementation
+voice_agent_gemini_standard.py   # Gemini Standard + DashScope TTS
+voice_agent_gemini_live.py       # Gemini Live API (native audio)
+
+# Shared components (provider-agnostic)
+models/
+  conversation_session.py        # Session state management
+routes/
+  api.py                         # HTTP routes
 services/
-  order_service.py          # Order processing logic
-  llm_service.py            # LLM streaming with function calling
-voice_agent.py              # Main server (reduced 20%)
+  order_service.py               # Order processing
+  llm_service.py                 # LLM streaming (DashScope)
+  dashscope_service.py           # DashScope TTS
+  gemini_standard_service.py     # Gemini Standard API
+  gemini_live_service.py         # Gemini Live API
 ```
+
+**Benefits:**
+- Clean separation: Each provider is isolated, no conditional branching throughout code
+- Independent evolution: Modify one provider without affecting others
+- Easier testing: Test each provider independently
+- Clear ownership: Each file has one responsibility
 
 **Performance Monitoring:**
 - Real-time metrics tracked: LLM first token, TTS latency, total response time
@@ -479,8 +573,10 @@ voice_agent.py              # Main server (reduced 20%)
 
 - **Backend:** Python + Flask + Flask-SocketIO
 - **Frontend:** Vanilla JavaScript + WebSocket + Web Audio API
-- **AI Services:** Alibaba DashScope (ASR, LLM, TTS)
-- **Speaker Verification:** Client-side voice fingerprinting (JavaScript)
+- **AI Services:**
+  - Alibaba DashScope (ASR, LLM, TTS)
+  - Google Gemini (Standard API for ASR+LLM, Live API for native audio)
+- **Speaker Verification:** Client-side voice fingerprinting (JavaScript) - deferred
 - **Data:** JSON files (menu, knowledge, config)
 
 ---
@@ -519,8 +615,21 @@ MIT License - See LICENSE file for details
 ## 🎯 Quick Reference
 
 ### Start Server
+
+**DashScope (default - recommended for production):**
 ```bash
-python3 voice_agent.py
+python3 main.py
+# or: PROVIDER=dashscope python3 main.py
+```
+
+**Gemini Standard API:**
+```bash
+PROVIDER=gemini python3 main.py
+```
+
+**Gemini Live API:**
+```bash
+PROVIDER=gemini_live python3 main.py
 ```
 
 ### Run Tests
@@ -575,8 +684,8 @@ Button will reappear for next customer
 
 ---
 
-**Last Updated:** 2026-03-07
-**Version:** POC v0.7 (Performance Optimization Focus)
-**Status:** Phase 5 complete, Phase 6 in progress (Performance)
-**Branch:** `feature/performance-optimization`
-**Next:** Reduce first audio latency to <300ms
+**Last Updated:** 2026-03-10
+**Version:** POC v0.8 (Multi-Provider Architecture)
+**Status:** Provider separation complete - DashScope, Gemini Standard, and Gemini Live API supported
+**Branch:** `feature/gemini-live-api`
+**Next:** Testing and validation of all provider modes
