@@ -1,196 +1,84 @@
-# Session Management Testing
+# Tests
 
-**Branch:** `feature/session-management`
-**Date:** 2026-02-05
-**Status:** ✅ Automated tests passed, ready for manual testing
+This directory contains all tests, separate from implementation code.
 
----
+## Test Structure
 
-## 📋 Test Files Created
+Tests are organized by provider:
 
-### 1. Unit Tests
-**File:** `tests/test_session_management.py`
+```
+tests/
+├── dashscope/                     # DashScope provider tests
+│   ├── test_dashscope.py          # Integration tests
+│   └── test_performance.py        # Performance tests
+├── gemini/                        # Gemini Standard provider tests
+│   ├── test_gemini.py
+│   └── test_performance.py
+├── gemini_live/                   # Gemini Live provider tests
+│   ├── test_gemini_live.py        # Integration tests
+│   ├── test_performance.py        # Performance tests
+│   └── test_unit.py               # Unit tests (no server required)
+├── fixtures/                      # Shared test audio files
+└── reports/                       # Test reports (legacy)
+```
 
-Tests core session management functionality:
-- Session initialization
-- State transitions
-- Order management in ORDERING state
-- Order locking on confirmation
-- Adding items after confirmation
-- Closing remark detection (EN/ZH/YUE)
-- Order totals calculation
-- Multiple confirmations
-- Session reset
+Implementation code is in `camarerai/`:
 
-**Result:** ✅ 41/41 tests passed
+```
+camarerai/
+├── common/                        # Shared models, routes, services, utils
+├── providers/
+│   ├── dashscope/                 # DashScope implementation
+│   ├── gemini/                    # Gemini Standard implementation
+│   └── gemini_live/               # Gemini Live implementation
+```
 
-### 2. Integration Tests
-**File:** `tests/test_integration.py`
+## Running Tests
 
-Tests WebSocket communication:
-- Session creation
-- State transitions via WebSocket
-- Order updates
-- Manual reset
-- Reconnection handling
-
-**Status:** Requires server to be running
-
-### 3. Manual Test Guide
-**File:** `tests/MANUAL_TEST_GUIDE.md`
-
-Comprehensive browser testing guide with 10 test cases:
-- Basic session flow
-- Adding more items
-- Modify attempts (should fail)
-- Remove attempts (should fail)
-- Manual reset
-- Multiple confirmations
-- Questions after confirmation
-- Language consistency
-- Speaker verification integration
-- Edge cases
-
-### 4. Test Runner
-**File:** `tests/run_tests.py`
-
-Runs all automated tests and provides instructions for manual tests.
-
----
-
-## 🧪 Test Results
-
-### ✅ Unit Tests: PASSED (41/41)
-
-All core functionality tests passed:
-- Session state management ✓
-- Order locking ✓
-- State transitions ✓
-- Closing remark detection ✓
-- Order calculations ✓
-- Multiple confirmations ✓
-- Session reset ✓
-
-### ⏳ Integration Tests: Pending
-
-Requires server to be running. To run:
+### Unit Tests (No Server Required)
 ```bash
-# Terminal 1
-python3 voice_agent.py
-
-# Terminal 2
-python3 tests/test_integration.py
+# Gemini Live unit tests
+python tests/gemini_live/test_unit.py
 ```
 
-### ⏳ Manual Tests: Pending
-
-Requires browser interaction. See `tests/MANUAL_TEST_GUIDE.md` for detailed instructions.
-
----
-
-## 🚀 Next Steps
-
-### 1. Run Integration Tests
-
-Start the server and run integration tests:
+### Integration Tests
 ```bash
-# Terminal 1: Start server
-python3 voice_agent.py
+# DashScope tests
+python tests/dashscope/test_dashscope.py -i 3
 
-# Terminal 2: Run integration tests
-python3 tests/test_integration.py
+# Gemini Standard tests
+python tests/gemini/test_gemini.py -i 3
+
+# Gemini Live tests
+python tests/gemini_live/test_gemini_live.py -i 1
 ```
 
-### 2. Run Manual Tests in Browser
-
-Follow the manual test guide:
+### Performance Tests
 ```bash
-# Start server
-python3 voice_agent.py
+# DashScope performance
+python tests/dashscope/test_performance.py -i 5
 
-# Open browser
-open http://localhost:5002
+# Gemini Standard performance
+python tests/gemini/test_performance.py -i 5
 
-# Follow test guide
-cat tests/MANUAL_TEST_GUIDE.md
+# Gemini Live performance
+python tests/gemini_live/test_performance.py -i 3
 ```
 
-### 3. Test Key Scenarios
+## Shared Test Fixtures
 
-**Priority tests:**
-- ✓ Order persists after "Thank you"
-- ✓ Button changes to "Tap for Anything"
-- ✓ Confirmed items are locked (grayed out)
-- ✓ Can add more items after confirmation
-- ✓ Cannot modify/remove confirmed items
-- ✓ Manual reset works
+- `fixtures/` - Test audio files (PCM format for audio-based tests)
+- `generate_test_audio.py` - Script to generate test audio using TTS
+- `reports/` - Legacy test reports
 
-### 4. After Testing Passes
+## Documentation
 
-If all tests pass:
-```bash
-# Commit test files
-git add tests/
-git commit -m "Test: Add comprehensive test suite for session management"
+- `AUTO_TESTS.md` - Automated testing documentation
+- `MANUAL_TEST_GUIDE.md` - Manual testing guide
 
-# Merge to main
-git checkout main
-git merge feature/session-management
+## Legacy Files
 
-# Update README
-# Document any issues found
-```
-
----
-
-## 📊 Test Coverage
-
-### Backend Coverage
-- ✅ SessionState enum
-- ✅ Session initialization
-- ✅ State transitions
-- ✅ Order locking logic
-- ✅ Closing remark detection
-- ✅ State-aware LLM prompts
-- ✅ Order calculations
-- ✅ Manual reset
-
-### Frontend Coverage
-- ⏳ State management (manual test)
-- ⏳ Button text changes (manual test)
-- ⏳ Order display (manual test)
-- ⏳ Locked item styling (manual test)
-- ⏳ Reset functionality (manual test)
-
-### Integration Coverage
-- ⏳ WebSocket communication
-- ⏳ State synchronization
-- ⏳ Order updates
-- ⏳ Session reset
-
----
-
-## 🐛 Known Issues
-
-None found in automated tests. Manual testing will reveal any UI or integration issues.
-
----
-
-## 📝 Test Execution Log
-
-```
-Date: 2026-02-05
-Branch: feature/session-management
-
-[✓] Unit Tests: 41/41 passed
-[ ] Integration Tests: Pending (requires server)
-[ ] Manual Tests: Pending (requires browser)
-
-Next: Run integration and manual tests
-```
-
----
-
-**Ready for:** Integration and manual testing
-**Test files:** All created in `tests/` directory
-**Documentation:** Complete test guide available
+The following files are kept for reference but are no longer actively used:
+- `test_all.py` - Old test runner
+- `TEST_RESULTS.md` - Old test results
+- `run_real_performance_tests.py` - Consolidated test runner (use provider-specific tests instead)

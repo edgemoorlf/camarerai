@@ -1,7 +1,7 @@
 # CamareraI - Voice Ordering System
 
-**Status:** POC - Multi-Provider Architecture
-**Last Updated:** 2026-03-10
+**Status:** POC - Multi-Provider with Segregated Architecture
+**Last Updated:** 2026-03-17
 **Branch:** `feature/gemini-live-api`
 
 > **Note:** The codebase now supports multiple AI providers: DashScope, Gemini Standard API, and Gemini Live API. Use `PROVIDER` env var to switch between them.
@@ -10,7 +10,7 @@
 
 ## 🎯 Current Implementation
 
-**Entry Point:** `main.py`
+**Entry Point:** `run.py`
 **Provider:** Configurable (`dashscope`, `gemini`, `gemini_live`)
 **Status:** ✅ Ready to test
 **Architecture:** Modular provider-specific voice agents with shared components
@@ -79,21 +79,35 @@ pip install -r requirements.txt
 
 ### 3. Start the Server
 
+**Using the run script (recommended):**
+```bash
+python3 run.py
+# or with specific provider:
+PROVIDER=gemini_live python3 run.py
+```
+
+**Using Python module syntax:**
+```bash
+python3 -m camarerai.main
+# or:
+PROVIDER=gemini python3 -m camarerai.main
+```
+
 **DashScope (default - full streaming):**
 ```bash
-python3 main.py
+python3 run.py
 # or explicitly:
-PROVIDER=dashscope python3 main.py
+PROVIDER=dashscope python3 run.py
 ```
 
 **Gemini Standard API (batch ASR+LLM, DashScope TTS):**
 ```bash
-PROVIDER=gemini python3 main.py
+PROVIDER=gemini python3 run.py
 ```
 
 **Gemini Live API (native bidirectional audio streaming):**
 ```bash
-PROVIDER=gemini_live python3 main.py
+PROVIDER=gemini_live python3 run.py
 ```
 
 ### 4. Open Browser
@@ -152,28 +166,51 @@ Speaker verification with client-side voice fingerprinting is implemented on the
 ### Core Files (Active)
 
 ```
-main.py                          # Entry point - launches appropriate provider
-config.py                        # Centralized configuration
+run.py                           # Entry point wrapper (recommended)
+camarerai/                       # Python package directory
+├── __init__.py
+├── main.py                      # Main entry point - launches appropriate provider
+├── config.py                    # Centralized configuration
+├── common/                      # Shared components (models, routes, services, utils)
+│   ├── models/
+│   │   └── conversation_session.py    # Session management
+│   ├── routes/
+│   │   └── api.py                     # HTTP API routes
+│   ├── services/
+│   │   ├── order_service.py           # Order processing
+│   │   └── llm_service.py             # LLM streaming
+│   └── utils/
+│       ├── performance_monitor.py     # Real-time performance metrics
+│       └── streaming_utils.py         # Sentence detection for TTS
+└── providers/                   # Provider implementations
+    ├── dashscope/               # DashScope Provider
+    │   ├── voice_agent.py                 # Flask-SocketIO app
+    │   ├── asr_vocabulary.py              # ASR hot words
+    │   └── services/
+    │       └── dashscope_service.py
+    ├── gemini/                  # Gemini Standard Provider
+    │   ├── voice_agent.py
+    │   └── services/
+    │       └── gemini_standard_service.py
+    └── gemini_live/             # Gemini Live Provider
+        ├── voice_agent.py
+        └── services/
+            └── gemini_live_service.py
 
-# Provider-specific voice agents (choose one via PROVIDER env var)
-voice_agent_dashscope.py         # DashScope ASR+LLM+TTS (streaming)
-voice_agent_gemini_standard.py   # Gemini ASR+LLM + DashScope TTS
-voice_agent_gemini_live.py       # Gemini Live API (native audio streaming)
+# Tests (separate from implementation)
+tests/
+├── dashscope/                   # DashScope tests
+│   ├── test_dashscope.py
+│   └── test_performance.py
+├── gemini/                      # Gemini tests
+│   ├── test_gemini.py
+│   └── test_performance.py
+├── gemini_live/                 # Gemini Live tests
+│   ├── test_gemini_live.py
+│   ├── test_performance.py
+│   └── test_unit.py
+└── fixtures/                    # Shared test audio files
 
-# Shared components
-models/
-└── conversation_session.py      # Session management (provider-agnostic)
-routes/
-└── api.py                       # HTTP API routes (shared)
-services/
-├── order_service.py             # Order processing logic
-├── llm_service.py               # LLM streaming with function calling
-├── dashscope_service.py         # DashScope API wrapper
-├── gemini_standard_service.py   # Gemini Standard API (ASR+LLM)
-├── gemini_live_service.py       # Gemini Live API service
-└── provider_factory.py          # Service factory
-
-performance_monitor.py           # Real-time performance metrics
 test_all.py                      # Complete system check
 
 data/
@@ -192,7 +229,7 @@ templates/
 └── index.html               # Minimal UI (status + order summary)
 
 # Note: speaker_fingerprint.js is on experiment/speaker-id-fingerprint branch
-Note: voice_agent.py is the legacy file (kept for reference, use main.py instead)
+# Note: The camarerai/ directory is the Python package root. Use 'from camarerai import X' for imports.
 ```
 
 ### Documentation
@@ -373,7 +410,55 @@ Expected output:
 🎉 Your system is ready!
 ```
 
-### Test 2: Conversation Flow
+### Test 2: Provider-Specific Tests
+
+Tests are organized by provider in `tests/` directory (separate from implementation):
+
+```bash
+# Unit tests (no server required)
+python tests/gemini_live/test_unit.py
+
+# Integration tests
+python tests/dashscope/test_dashscope.py -i 3
+python tests/gemini/test_gemini.py -i 3
+python tests/gemini_live/test_gemini_live.py -i 1
+
+# Performance tests
+python tests/dashscope/test_performance.py -i 5
+python tests/gemini/test_performance.py -i 5
+python tests/gemini_live/test_performance.py -i 3
+```
+
+**What it tests:**
+- Session creation latency
+- LLM first token response time
+- Total end-to-end response time (chat → audio)
+
+**Current test status:**
+| Provider | Status | Avg Response | Notes |
+|----------|--------|--------------|-------|
+| **DashScope** | ✅ Tested | ~2200ms | 6/6 scenarios pass |
+| **Gemini Standard** | ✅ Tested | ~2000ms | 6/6 scenarios pass |
+| **Gemini Live** | ⚠️ Partial | ~1150ms | 4/6 scenarios pass, unit tests 3/3 pass |
+
+**Example output:**
+```
+======================================================================
+TESTING PROVIDER: DASHSCOPE
+======================================================================
+  simple_order (1/1)... ✓ 1101ms
+  complex_order (1/1)... ✓ 1562ms
+  ...
+
+Total Response: Avg 1802ms (target: <600ms) ❌
+```
+
+**Reports are saved to:**
+- `tests/reports/perf_report_dashscope_<timestamp>.json` - DashScope metrics ✅
+- `tests/reports/perf_report_gemini_<timestamp>.json` - Gemini metrics ✅
+- `tests/reports/comparison_<timestamp>.json` - Cross-provider comparison
+
+### Test 3: Conversation Flow
 
 **English:**
 ```
@@ -535,34 +620,48 @@ See [docs/eng/CURRENT_STATUS.md](docs/eng/CURRENT_STATUS.md) for detailed optimi
 
 ### Current Architecture
 
-**Refactored Structure (2026-03-10):**
+**Refactored Structure (2026-03-17):**
 ```
 main.py                          # Entry point - imports provider-specific agent
 config.py                        # All configuration
 
-# Provider-specific implementations (no mixed logic)
-voice_agent_dashscope.py         # Complete DashScope implementation
-voice_agent_gemini_standard.py   # Gemini Standard + DashScope TTS
-voice_agent_gemini_live.py       # Gemini Live API (native audio)
+# Provider implementations (segregated)
+providers/
+├── common/                      # Shared components (provider-agnostic)
+│   ├── models/
+│   │   └── conversation_session.py    # Session state management
+│   ├── routes/
+│   │   └── api.py                     # HTTP routes
+│   └── services/
+│       ├── order_service.py           # Order processing
+│       └── llm_service.py             # LLM streaming
+├── dashscope/                   # DashScope Provider
+│   ├── voice_agent.py                 # Flask-SocketIO app
+│   └── services/
+│       └── dashscope_service.py
+├── gemini/                      # Gemini Standard Provider
+│   ├── voice_agent.py
+│   └── services/
+│       └── gemini_standard_service.py
+└── gemini_live/                 # Gemini Live Provider
+    ├── voice_agent.py
+    └── services/
+        └── gemini_live_service.py
 
-# Shared components (provider-agnostic)
-models/
-  conversation_session.py        # Session state management
-routes/
-  api.py                         # HTTP routes
-services/
-  order_service.py               # Order processing
-  llm_service.py                 # LLM streaming (DashScope)
-  dashscope_service.py           # DashScope TTS
-  gemini_standard_service.py     # Gemini Standard API
-  gemini_live_service.py         # Gemini Live API
+# Tests (separate from implementation)
+tests/
+├── dashscope/                   # DashScope tests
+├── gemini/                      # Gemini tests
+├── gemini_live/                 # Gemini Live tests
+└── fixtures/                    # Shared test audio files
 ```
 
 **Benefits:**
-- Clean separation: Each provider is isolated, no conditional branching throughout code
+- Clean separation: Each provider is isolated in its own directory
 - Independent evolution: Modify one provider without affecting others
+- Tests separate from implementation: Clean code organization
+- No conditional branching: Each provider has complete implementation
 - Easier testing: Test each provider independently
-- Clear ownership: Each file has one responsibility
 
 **Performance Monitoring:**
 - Real-time metrics tracked: LLM first token, TTS latency, total response time
@@ -634,8 +733,20 @@ PROVIDER=gemini_live python3 main.py
 
 ### Run Tests
 ```bash
-python3 test_all.py          # Complete system check
-python3 test_network.py      # Network diagnostics only
+python3 test_all.py                              # Complete system check
+
+# Unit tests (no server)
+python tests/gemini_live/test_unit.py
+
+# Integration tests
+python tests/dashscope/test_dashscope.py -i 3
+python tests/gemini/test_gemini.py -i 3
+python tests/gemini_live/test_gemini_live.py -i 1
+
+# Performance tests
+python tests/dashscope/test_performance.py -i 5
+python tests/gemini/test_performance.py -i 5
+python tests/gemini_live/test_performance.py -i 3
 ```
 
 ### Install Dependencies
@@ -684,8 +795,8 @@ Button will reappear for next customer
 
 ---
 
-**Last Updated:** 2026-03-10
-**Version:** POC v0.8 (Multi-Provider Architecture)
-**Status:** Provider separation complete - DashScope, Gemini Standard, and Gemini Live API supported
+**Last Updated:** 2026-03-17
+**Version:** POC v1.0 (Segregated Provider Architecture)
+**Status:** All 3 providers implemented with tests. Code organized: providers/ for implementation, tests/ for tests.
 **Branch:** `feature/gemini-live-api`
-**Next:** Testing and validation of all provider modes
+**Next:** Performance optimization to reduce first audio latency to <300ms
